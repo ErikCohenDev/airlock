@@ -5,7 +5,7 @@ from rich.console import Console
 from rich.table import Table
 
 app = typer.Typer(
-    name="sag",
+    name="airlock",
     help="Secure Access Gateway — Human-in-the-loop access control for AI agents",
 )
 console = Console()

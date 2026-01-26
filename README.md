@@ -1,4 +1,4 @@
-# SAG — Secure Access Gateway for AI Agents
+# 🚀 Airlock — Secure Access Gateway for AI Agents
 
 > Human-in-the-loop access control for AI agents. Your assistant asks, you approve with TOTP, access auto-expires.
 
@@ -16,11 +16,11 @@ AI agents need access to your personal services — email, calendar, APIs. Curre
 
 ## The Solution
 
-SAG sits between your AI agent and your personal services:
+Airlock sits between your AI agent and your personal services:
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  AI Agent   │────►│     SAG     │────►│   Gmail     │     │    You      │
+│  AI Agent   │────►│     Airlock     │────►│   Gmail     │     │    You      │
 │  (Claude,   │     │  Gateway    │     │  Calendar   │     │  (Telegram) │
 │   etc.)     │     │             │◄────│   etc.      │     │             │
 └─────────────┘     └──────┬──────┘     └─────────────┘     └──────┬──────┘
@@ -46,7 +46,7 @@ SAG sits between your AI agent and your personal services:
 - **📖 Read-Only by Default** — Agents can read but not send, delete, or modify
 - **📋 Full Audit Trail** — Every access logged with timestamp, operation, and result
 - **🔒 Credential Isolation** — Secrets stored in isolated system user, inaccessible to agent
-- **📱 Mobile Approval** — Approve via Telegram, Signal, or any messaging platform
+- **📱 Mobile Approval** — Approve via Telegram, Signal, or any mesairlocking platform
 - **🏠 Self-Hosted** — Your data stays on your machine
 
 ## Security Model
@@ -56,7 +56,7 @@ SAG sits between your AI agent and your personal services:
 │                        Your Machine                            │
 │                                                                │
 │  ┌──────────────────┐    ┌──────────────────────────────────┐ │
-│  │ AI Agent         │    │ sag-gateway (isolated user)      │ │
+│  │ AI Agent         │    │ airlock-gateway (isolated user)      │ │
 │  │ (runs as you)    │    │ - Owns credentials               │ │
 │  │                  │    │ - Validates tokens               │ │
 │  │ ❌ Cannot read:  │    │ - Enforces read-only             │ │
@@ -64,7 +64,7 @@ SAG sits between your AI agent and your personal services:
 │  │   - Credentials  │    └──────────────────────────────────┘ │
 │  └──────────────────┘                                          │
 │                          ┌──────────────────────────────────┐  │
-│                          │ sag-totp (isolated user)         │  │
+│                          │ airlock-totp (isolated user)         │  │
 │                          │ - Owns TOTP secret               │  │
 │                          │ - Issues tokens                  │  │
 │                          │ - Cannot access credentials      │  │
@@ -80,8 +80,8 @@ Linux user isolation means the agent **literally cannot** read secrets — it's 
 
 ```bash
 # Clone and build
-git clone https://github.com/ErikCohenDev/sag.git
-cd sag
+git clone https://github.com/ErikCohenDev/airlock.git
+cd airlock
 ./install.sh
 ```
 
@@ -89,30 +89,30 @@ cd sag
 
 ```bash
 # Generates secret, shows QR code for your authenticator app
-sag setup totp
+airlock setup totp
 ```
 
 ### 3. Add Credentials
 
 ```bash
 # Add Gmail (app password)
-sag credentials add gmail
+airlock credentials add gmail
 ```
 
 ### 4. Use with Your Agent
 
 ```python
-from sag import SAGClient
+from airlock import AirlockClient
 
-async with SAGClient() as sag:
-    # This sends you a Telegram message asking for TOTP
-    token = await sag.request_access(
+async with AirlockClient() as airlock:
+    # This sends you a Telegram mesairlocke asking for TOTP
+    token = await airlock.request_access(
         services=["gmail"],
         reason="Check for urgent emails"
     )
     
     # After you reply with TOTP code...
-    messages = await sag.gmail.list_messages(limit=10)
+    mesairlockes = await airlock.gmail.list_mesairlockes(limit=10)
     
 # Token auto-revoked when done
 ```
@@ -130,9 +130,9 @@ More coming: GitHub, Slack, Notion, etc.
 ## Configuration
 
 ```yaml
-# ~/.config/sag/config.yaml
+# ~/.config/airlock/config.yaml
 totp:
-  issuer: "SAG"
+  issuer: "Airlock"
   digits: 6
   period: 30
 
@@ -156,15 +156,15 @@ Every access is logged:
 ```jsonl
 {"ts":"2026-01-26T15:30:00Z","event":"access_requested","services":["gmail"],"reason":"Check urgent emails"}
 {"ts":"2026-01-26T15:30:15Z","event":"totp_verified","token_id":"tok_abc123"}
-{"ts":"2026-01-26T15:30:20Z","event":"operation","service":"gmail","op":"list_messages","count":10}
+{"ts":"2026-01-26T15:30:20Z","event":"operation","service":"gmail","op":"list_mesairlockes","count":10}
 {"ts":"2026-01-26T16:30:00Z","event":"token_expired","token_id":"tok_abc123"}
 ```
 
 Review anytime:
 
 ```bash
-sag audit today
-sag audit --service gmail --last 7d
+airlock audit today
+airlock audit --service gmail --last 7d
 ```
 
 ## Roadmap
@@ -182,7 +182,7 @@ sag audit --service gmail --last 7d
 
 ## How It Compares
 
-| Feature | SAG | Gap | DeepSecure | Raw OAuth |
+| Feature | Airlock | Gap | DeepSecure | Raw OAuth |
 |---------|-----|-----|------------|-----------|
 | Human approval per session | ✅ TOTP | ❌ | ❌ | ❌ |
 | Credential isolation | ✅ | ✅ | ✅ | ❌ |

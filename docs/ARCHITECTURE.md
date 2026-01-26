@@ -1,4 +1,4 @@
-# Secure Access Gateway (SAG)
+# Secure Access Gateway (Airlock)
 
 > **Status:** Design Draft v0.1
 > **Author:** Bobby (with Erik)
@@ -46,15 +46,15 @@ A secure, audited system for Bobby to access Erik's personal services (email, ca
 │  │                    User: bcohen (Bobby's context)                  │ │
 │  │                                                                    │ │
 │  │   ┌──────────────┐      ┌──────────────┐      ┌───────────────┐   │ │
-│  │   │   Bobby      │      │  SAG Client  │      │  Audit Log    │   │ │
+│  │   │   Bobby      │      │  Airlock Client  │      │  Audit Log    │   │ │
 │  │   │  (Clawdbot)  │─────►│  Library     │─────►│  (append-only)│   │ │
 │  │   └──────────────┘      └──────────────┘      └───────────────┘   │ │
 │  │                               │                                    │ │
 │  └───────────────────────────────┼────────────────────────────────────┘ │
 │                                  │ Unix Socket                          │
-│                                  │ /run/sag/gateway.sock                │
+│                                  │ /run/airlock/gateway.sock                │
 │  ┌───────────────────────────────┼────────────────────────────────────┐ │
-│  │              User: sag-gateway (isolated)                          │ │
+│  │              User: airlock-gateway (isolated)                          │ │
 │  │                                                                    │ │
 │  │   ┌──────────────────────────────────────────────────────────────┐ │ │
 │  │   │                    Access Gateway                            │ │ │
@@ -73,17 +73,17 @@ A secure, audited system for Bobby to access Erik's personal services (email, ca
 │  │                          │                                         │ │
 │  │   ┌──────────────────────▼───────────────────────────────────────┐ │ │
 │  │   │              Credentials Store (encrypted)                   │ │ │
-│  │   │              /var/lib/sag/credentials.age                    │ │ │
-│  │   │              (owned by sag-gateway, mode 600)                │ │ │
+│  │   │              /var/lib/airlock/credentials.age                    │ │ │
+│  │   │              (owned by airlock-gateway, mode 600)                │ │ │
 │  │   └──────────────────────────────────────────────────────────────┘ │ │
 │  └────────────────────────────────────────────────────────────────────┘ │
 │                                                                         │
 │  ┌────────────────────────────────────────────────────────────────────┐ │
-│  │              User: sag-totp (isolated, no shell)                   │ │
+│  │              User: airlock-totp (isolated, no shell)                   │ │
 │  │                                                                    │ │
 │  │   ┌──────────────────────────────────────────────────────────────┐ │ │
 │  │   │                   TOTP Verifier                              │ │ │
-│  │   │  - Listens on /run/sag/totp.sock                             │ │ │
+│  │   │  - Listens on /run/airlock/totp.sock                             │ │ │
 │  │   │  - Validates TOTP codes                                      │ │ │
 │  │   │  - Issues tokens to Gateway                                  │ │ │
 │  │   │  - Owns TOTP secret (inaccessible to other users)            │ │ │
@@ -91,7 +91,7 @@ A secure, audited system for Bobby to access Erik's personal services (email, ca
 │  │                                                                    │ │
 │  │   ┌──────────────────────────────────────────────────────────────┐ │ │
 │  │   │              TOTP Secret                                     │ │ │
-│  │   │              /var/lib/sag-totp/secret (mode 600)             │ │ │
+│  │   │              /var/lib/airlock-totp/secret (mode 600)             │ │ │
 │  │   └──────────────────────────────────────────────────────────────┘ │ │
 │  └────────────────────────────────────────────────────────────────────┘ │
 │                                                                         │
@@ -104,16 +104,16 @@ A secure, audited system for Bobby to access Erik's personal services (email, ca
 
 **Purpose:** Validate TOTP codes and issue access tokens.
 
-**User:** `sag-totp` (dedicated system user, no shell, no login)
+**User:** `airlock-totp` (dedicated system user, no shell, no login)
 
-**Interface:** Unix socket `/run/sag/totp.sock`
+**Interface:** Unix socket `/run/airlock/totp.sock`
 
 **Files:**
 | Path | Mode | Description |
 |------|------|-------------|
-| `/var/lib/sag-totp/secret` | 0600 | TOTP secret (base32) |
-| `/var/lib/sag-totp/tokens.db` | 0600 | Active tokens (SQLite) |
-| `/run/sag/totp.sock` | 0660 | Socket (group: sag) |
+| `/var/lib/airlock-totp/secret` | 0600 | TOTP secret (base32) |
+| `/var/lib/airlock-totp/tokens.db` | 0600 | Active tokens (SQLite) |
+| `/run/airlock/totp.sock` | 0660 | Socket (group: airlock) |
 
 **Operations:**
 
@@ -130,17 +130,17 @@ list_active_tokens() → list[Token]  # For audit
 
 **Purpose:** Accept tokens, enforce permissions, route to service connectors.
 
-**User:** `sag-gateway`
+**User:** `airlock-gateway`
 
-**Interface:** Unix socket `/run/sag/gateway.sock`
+**Interface:** Unix socket `/run/airlock/gateway.sock`
 
 **Files:**
 | Path | Mode | Description |
 |------|------|-------------|
-| `/var/lib/sag/credentials.age` | 0600 | Encrypted credentials |
-| `/var/lib/sag/key.txt` | 0600 | age key for credentials |
-| `/var/lib/sag/audit.log` | 0640 | Audit log (append-only) |
-| `/run/sag/gateway.sock` | 0660 | Socket (group: sag) |
+| `/var/lib/airlock/credentials.age` | 0600 | Encrypted credentials |
+| `/var/lib/airlock/key.txt` | 0600 | age key for credentials |
+| `/var/lib/airlock/audit.log` | 0640 | Audit log (append-only) |
+| `/run/airlock/gateway.sock` | 0660 | Socket (group: airlock) |
 
 **Operations:**
 
@@ -158,16 +158,16 @@ Modular connectors for each service. All implement read-only operations only (v1
 ```python
 class GmailConnector:
     # Read operations (allowed)
-    def list_messages(folder: str, limit: int, query: str?) → list[MessageSummary]
-    def get_message(message_id: str) → Message
-    def search(query: str, limit: int) → list[MessageSummary]
+    def list_mesairlockes(folder: str, limit: int, query: str?) → list[MesairlockeSummary]
+    def get_mesairlocke(mesairlocke_id: str) → Mesairlocke
+    def search(query: str, limit: int) → list[MesairlockeSummary]
     def list_folders() → list[Folder]
     def get_unread_count() → int
     
     # Write operations (blocked in v1)
-    # def send_message(...) → BLOCKED
-    # def delete_message(...) → BLOCKED
-    # def move_message(...) → BLOCKED
+    # def send_mesairlocke(...) → BLOCKED
+    # def delete_mesairlocke(...) → BLOCKED
+    # def move_mesairlocke(...) → BLOCKED
 ```
 
 #### Calendar Connector
@@ -190,24 +190,24 @@ class CalendarConnector:
 ```python
 class iCloudConnector:
     # Read operations (allowed)
-    def list_messages(folder: str, limit: int) → list[MessageSummary]
-    def get_message(message_id: str) → Message
+    def list_mesairlockes(folder: str, limit: int) → list[MesairlockeSummary]
+    def get_mesairlocke(mesairlocke_id: str) → Mesairlocke
     def get_unread_count() → int
     
     # Write operations (blocked in v1)
-    # def send_message(...) → BLOCKED
+    # def send_mesairlocke(...) → BLOCKED
 ```
 
-### 4.4 SAG Client Library
+### 4.4 Airlock Client Library
 
 **Purpose:** Simple interface for Bobby to request access and execute operations.
 
 ```python
-from sag import SAGClient
+from airlock import AirlockClient
 
-async with SAGClient() as sag:
-    # Request access (sends Telegram message to Erik)
-    token = await sag.request_access(
+async with AirlockClient() as airlock:
+    # Request access (sends Telegram mesairlocke to Erik)
+    token = await airlock.request_access(
         services=["gmail"],
         reason="Check for urgent emails",
         ttl_minutes=60
@@ -216,16 +216,16 @@ async with SAGClient() as sag:
     # Token is now valid
     
     # Execute read operation
-    unread = await sag.execute(
+    unread = await airlock.execute(
         token=token,
         service="gmail",
         operation="get_unread_count"
     )
     
-    messages = await sag.execute(
+    mesairlockes = await airlock.execute(
         token=token,
         service="gmail",
-        operation="list_messages",
+        operation="list_mesairlockes",
         params={"folder": "INBOX", "limit": 10, "query": "is:unread"}
     )
     
@@ -287,7 +287,7 @@ CREATE TABLE tokens (
   "timestamp": "2026-01-26T15:32:01Z",
   "token_id": "tok_xyz789",
   "service": "gmail",
-  "operation": "list_messages",
+  "operation": "list_mesairlockes",
   "params": {"folder": "INBOX", "limit": 10},
   "result": "success",
   "records_returned": 10,
@@ -301,34 +301,34 @@ CREATE TABLE tokens (
 
 | User | Can Access | Cannot Access |
 |------|-----------|---------------|
-| `bcohen` (Bobby) | SAG Client, Gateway socket | TOTP secret, credentials |
-| `sag-gateway` | Credentials, Gateway socket | TOTP secret |
-| `sag-totp` | TOTP secret, Token DB | Credentials |
+| `bcohen` (Bobby) | Airlock Client, Gateway socket | TOTP secret, credentials |
+| `airlock-gateway` | Credentials, Gateway socket | TOTP secret |
+| `airlock-totp` | TOTP secret, Token DB | Credentials |
 
 ### 6.2 File Permissions
 
 ```
-/var/lib/sag-totp/
-├── secret              (sag-totp:sag-totp, 0600)
-└── tokens.db           (sag-totp:sag-totp, 0600)
+/var/lib/airlock-totp/
+├── secret              (airlock-totp:airlock-totp, 0600)
+└── tokens.db           (airlock-totp:airlock-totp, 0600)
 
-/var/lib/sag/
-├── credentials.age     (sag-gateway:sag-gateway, 0600)
-├── key.txt             (sag-gateway:sag-gateway, 0600)
-└── audit.log           (sag-gateway:sag, 0640)
+/var/lib/airlock/
+├── credentials.age     (airlock-gateway:airlock-gateway, 0600)
+├── key.txt             (airlock-gateway:airlock-gateway, 0600)
+└── audit.log           (airlock-gateway:airlock, 0640)
 
-/run/sag/
-├── totp.sock           (sag-totp:sag, 0660)
-└── gateway.sock        (sag-gateway:sag, 0660)
+/run/airlock/
+├── totp.sock           (airlock-totp:airlock, 0660)
+└── gateway.sock        (airlock-gateway:airlock, 0660)
 ```
 
 ### 6.3 Attack Surface Analysis
 
 | Attack Vector | Mitigation |
 |---------------|-----------|
-| Bobby reads TOTP secret | File owned by sag-totp, mode 0600 |
-| Bobby reads credentials | File owned by sag-gateway, mode 0600 |
-| Bobby forges token | Tokens signed by sag-totp, verified by gateway |
+| Bobby reads TOTP secret | File owned by airlock-totp, mode 0600 |
+| Bobby reads credentials | File owned by airlock-gateway, mode 0600 |
+| Bobby forges token | Tokens signed by airlock-totp, verified by gateway |
 | Bobby brute-forces TOTP | Rate limiting (5 attempts/min), 30-sec rotation |
 | Stolen token | Time-limited (60 min default), can be revoked |
 | Replay attack | Tokens are single-use per time window |
@@ -340,11 +340,11 @@ CREATE TABLE tokens (
 
 ```
 Erik (terminal):
-1. sudo useradd -r -s /usr/sbin/nologin sag-totp
-2. sudo useradd -r -s /usr/sbin/nologin sag-gateway
-3. sudo groupadd sag
-4. sudo usermod -aG sag bcohen
-5. sudo usermod -aG sag sag-gateway
+1. sudo useradd -r -s /usr/sbin/nologin airlock-totp
+2. sudo useradd -r -s /usr/sbin/nologin airlock-gateway
+3. sudo groupadd airlock
+4. sudo usermod -aG airlock bcohen
+5. sudo usermod -aG airlock airlock-gateway
 6. Run setup script (generates TOTP secret, shows QR code)
 7. Erik scans QR code with Google Authenticator
 8. Erik enters credentials (encrypted to credentials.age)
@@ -354,7 +354,7 @@ Erik (terminal):
 ### 7.2 Access Request Flow
 
 ```
-Bobby                    SAG Client           TOTP Verifier        Gateway
+Bobby                    Airlock Client           TOTP Verifier        Gateway
   │                          │                      │                  │
   ├─ request_access() ──────►│                      │                  │
   │                          ├── notify Erik ──────►│ (Telegram)       │
@@ -411,7 +411,7 @@ Created ──► Active ──┬──► Expired (TTL reached)
 - [ ] Calendar connector (CalDAV or API)
 
 ### Phase 4: Client Library (1-2 hours)
-- [ ] SAG Client for Bobby
+- [ ] Airlock Client for Bobby
 - [ ] Telegram integration for TOTP prompt
 - [ ] Auto-revoke on context exit
 
@@ -459,6 +459,6 @@ Created ──► Active ──┬──► Expired (TTL reached)
 {"id":"a002","ts":"2026-01-26T15:30:15Z","event":"totp_verified","token_id":"tok_abc","success":true}
 {"id":"a003","ts":"2026-01-26T15:30:16Z","event":"token_issued","token_id":"tok_abc","expires_at":"2026-01-26T16:30:16Z"}
 {"id":"a004","ts":"2026-01-26T15:30:20Z","event":"operation","token_id":"tok_abc","service":"gmail","op":"get_unread_count","result":"success","data":{"count":3}}
-{"id":"a005","ts":"2026-01-26T15:30:25Z","event":"operation","token_id":"tok_abc","service":"gmail","op":"list_messages","params":{"limit":10},"result":"success","data":{"count":10}}
+{"id":"a005","ts":"2026-01-26T15:30:25Z","event":"operation","token_id":"tok_abc","service":"gmail","op":"list_mesairlockes","params":{"limit":10},"result":"success","data":{"count":10}}
 {"id":"a006","ts":"2026-01-26T15:35:00Z","event":"token_revoked","token_id":"tok_abc","reason":"context_exit"}
 ```

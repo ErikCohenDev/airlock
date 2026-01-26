@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sag.models import Token, AccessRequest
+from airlock.models import Token, AccessRequest
 
 
 class SAGClient:

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "sag"
+name = "airlock"
 version = "0.1.0"
 description = "Secure Access Gateway — Human-in-the-loop access control for AI agents"
 readme = "README.md"
@@ -46,16 +46,19 @@ dev = [
 ]
 
 [project.scripts]
-sag = "sag.cli:app"
+airlock = "airlock.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/ErikCohenDev/sag"
-Documentation = "https://github.com/ErikCohenDev/sag/docs"
-Repository = "https://github.com/ErikCohenDev/sag"
-Issues = "https://github.com/ErikCohenDev/sag/issues"
+Homepage = "https://github.com/ErikCohenDev/airlock"
+Documentation = "https://github.com/ErikCohenDev/airlock/docs"
+Repository = "https://github.com/ErikCohenDev/airlock"
+Issues = "https://github.com/ErikCohenDev/airlock/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/sag"]
+packages = ["src/airlock"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/airlock"]
 
 [tool.ruff]
 line-length = 100
