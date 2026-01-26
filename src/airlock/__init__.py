@@ -1,10 +1,23 @@
 """Airlock — Secure Access Gateway for AI Agents."""
 
-from airlock.client import AirlockClient, AirlockClientSync
+from airlock.client import (
+    AccessDeniedError,
+    AirlockClient,
+    AirlockClientSync,
+    AirlockError,
+    InvalidTokenError,
+    ServiceError,
+)
+from airlock.gateway import (
+    AccessGateway,
+    AuditLogger,
+    GatewayConfig,
+    ServiceConnector,
+    TOTPVerifierClient,
+)
 from airlock.models import (
     AccessRequest,
     AuditEntry,
-    GatewayConfig,
     Permission,
     ServiceCredentials,
     Token,
@@ -18,16 +31,28 @@ from airlock.totp_verifier import (
 )
 
 __all__ = [
+    # Client
     "AirlockClient",
     "AirlockClientSync",
+    "AirlockError",
+    "AccessDeniedError",
+    "InvalidTokenError",
+    "ServiceError",
+    # Gateway
+    "AccessGateway",
+    "AuditLogger",
+    "GatewayConfig",
+    "ServiceConnector",
+    "TOTPVerifierClient",
+    # Models
     "AccessRequest",
     "AuditEntry",
-    "GatewayConfig",
-    "IssuedToken",
     "Permission",
     "ServiceCredentials",
     "Token",
     "TokenStatus",
+    # TOTP
+    "IssuedToken",
     "TOTPConfig",
     "TOTPGenerator",
     "TOTPVerifier",
