@@ -194,6 +194,8 @@ def totp_cmd(
 def credentials_cmd(
     action: str = typer.Argument(..., help="add, list, or remove"),
     service: str = typer.Argument(None, help="Service name (gmail, calendar)"),
+    email: str = typer.Option(None, "--email", "-e", help="Email address"),
+    password: str = typer.Option(None, "--password", "-p", help="App password"),
 ):
     """Manage service credentials."""
     config = load_config()
@@ -225,16 +227,17 @@ def credentials_cmd(
             raise typer.Exit(1)
         
         if service == "gmail":
-            console.print("[bold]Gmail Setup[/bold]\n")
-            console.print("You'll need an App Password from Google.")
-            console.print("Go to: https://myaccount.google.com/apppasswords\n")
+            if not email or not password:
+                console.print("[bold]Gmail Setup[/bold]\n")
+                console.print("You'll need an App Password from Google.")
+                console.print("Go to: https://myaccount.google.com/apppasswords\n")
             
-            email = typer.prompt("Gmail address")
-            app_password = typer.prompt("App password", hide_input=True)
+            gmail_email = email or typer.prompt("Gmail address")
+            app_password = password or typer.prompt("App password", hide_input=True)
             
             credentials["gmail"] = {
                 "type": "imap",
-                "email": email,
+                "email": gmail_email,
                 "app_password": app_password,
                 "imap_host": "imap.gmail.com",
                 "imap_port": 993,
@@ -243,7 +246,7 @@ def credentials_cmd(
             config["credentials"] = credentials
             save_config(config)
             
-            console.print(f"\n[green]Gmail credentials saved for {email}[/green]")
+            console.print(f"\n[green]Gmail credentials saved for {gmail_email}[/green]")
         
         elif service == "calendar":
             console.print("[yellow]Google Calendar connector not yet implemented[/yellow]")
@@ -384,6 +387,127 @@ def status():
 
 
 @app.command()
+def start(
+    foreground: bool = typer.Option(False, "--foreground", "-f", help="Run in foreground (don't daemonize)"),
+):
+    """Start Airlock daemons."""
+    config = load_config()
+    
+    # Check prerequisites
+    secret_path = Path(config.get("totp", {}).get("secret_path", DEFAULT_DATA_DIR / "totp_secret"))
+    if not secret_path.exists():
+        console.print("[red]TOTP not configured. Run 'airlock totp setup' first.[/red]")
+        raise typer.Exit(1)
+    
+    # Ensure run directory exists
+    run_dir = DEFAULT_RUN_DIR
+    run_dir.mkdir(parents=True, exist_ok=True)
+    
+    gateway_socket = Path(config.get("gateway", {}).get("socket_path", run_dir / "gateway.sock"))
+    totp_socket = Path(config.get("gateway", {}).get("totp_socket_path", run_dir / "totp.sock"))
+    
+    # Check if already running
+    if totp_socket.exists() or gateway_socket.exists():
+        console.print("[yellow]Daemons may already be running. Run 'airlock stop' first.[/yellow]")
+        if not typer.confirm("Continue anyway?"):
+            raise typer.Abort()
+    
+    if foreground:
+        console.print("[bold]Starting Airlock in foreground...[/bold]")
+        console.print("Press Ctrl+C to stop.\n")
+        
+        import asyncio
+        from airlock.totp_verifier import TOTPConfig, TOTPVerifier, ConsoleNotificationProvider
+        from airlock.gateway import AccessGateway, GatewayConfig as GWConfig
+        from airlock.connectors.gmail import GmailConnector, GmailConfig
+        
+        async def run_daemons():
+            # Setup TOTP verifier
+            totp_cfg = TOTPConfig(
+                secret_path=secret_path,
+                socket_path=totp_socket,
+                issuer=config.get("totp", {}).get("issuer", "Airlock"),
+            )
+            verifier = TOTPVerifier(totp_cfg, ConsoleNotificationProvider())
+            
+            # Setup gateway
+            gw_cfg = GWConfig(
+                socket_path=gateway_socket,
+                totp_socket_path=totp_socket,
+                audit_log_path=Path(config.get("gateway", {}).get("audit_log_path", DEFAULT_LOG_DIR / "audit.jsonl")),
+            )
+            gateway = AccessGateway(gw_cfg)
+            
+            # Register connectors
+            credentials = config.get("credentials", {})
+            if "gmail" in credentials:
+                gmail_cred = credentials["gmail"]
+                gmail = GmailConnector(GmailConfig(
+                    email=gmail_cred["email"],
+                    app_password=gmail_cred["app_password"],
+                ))
+                gateway.register_connector(gmail)
+                console.print(f"  Registered: gmail ({gmail_cred['email']})")
+            
+            console.print()
+            
+            # Run both daemons
+            await asyncio.gather(
+                verifier.start(),
+                gateway.start(),
+            )
+        
+        try:
+            asyncio.run(run_daemons())
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Shutting down...[/yellow]")
+    else:
+        # Background mode - spawn subprocess
+        import subprocess
+        
+        # Get the path to this script
+        script = sys.argv[0]
+        
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "airlock.cli", "start", "--foreground"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        
+        console.print(f"[green]Airlock daemons starting (pid {proc.pid})...[/green]")
+        console.print("Run 'airlock status' to check.")
+
+
+@app.command()
+def stop():
+    """Stop Airlock daemons."""
+    config = load_config()
+    run_dir = DEFAULT_RUN_DIR
+    
+    gateway_socket = Path(config.get("gateway", {}).get("socket_path", run_dir / "gateway.sock"))
+    totp_socket = Path(config.get("gateway", {}).get("totp_socket_path", run_dir / "totp.sock"))
+    
+    stopped = False
+    
+    # Remove socket files (daemons will detect and exit, or we're cleaning up stale sockets)
+    if gateway_socket.exists():
+        gateway_socket.unlink()
+        console.print("  Removed gateway socket")
+        stopped = True
+    
+    if totp_socket.exists():
+        totp_socket.unlink()
+        console.print("  Removed TOTP socket")
+        stopped = True
+    
+    if stopped:
+        console.print("[green]Airlock stopped.[/green]")
+    else:
+        console.print("[dim]No daemons were running.[/dim]")
+
+
+@app.command()
 def test():
     """Test TOTP verification (manual)."""
     config = load_config()
@@ -410,6 +534,101 @@ def test():
         console.print("\n[green]Verification successful![/green]")
     else:
         console.print("\n[red]Verification failed. Code incorrect or expired.[/red]")
+        raise typer.Exit(1)
+
+
+@app.command("run")
+def run_cmd(
+    service: str = typer.Argument(..., help="Service (gmail)"),
+    operation: str = typer.Argument(..., help="Operation (list_messages, get_message, search, count_unread)"),
+    params: str = typer.Option("{}", "--params", "-p", help="JSON params"),
+    skip_totp: bool = typer.Option(False, "--skip-totp", help="Skip TOTP (for testing only)"),
+):
+    """Run a one-shot operation with TOTP approval."""
+    import asyncio
+    import json as json_lib
+    
+    config = load_config()
+    credentials = config.get("credentials", {})
+    
+    if service not in credentials:
+        console.print(f"[red]Service '{service}' not configured. Run 'airlock credentials add {service}'[/red]")
+        raise typer.Exit(1)
+    
+    # Parse params
+    try:
+        op_params = json_lib.loads(params)
+    except json_lib.JSONDecodeError:
+        console.print("[red]Invalid JSON params[/red]")
+        raise typer.Exit(1)
+    
+    # TOTP verification
+    if not skip_totp:
+        totp_config = config.get("totp", {})
+        secret_path = Path(totp_config.get("secret_path", DEFAULT_DATA_DIR / "totp_secret"))
+        
+        if not secret_path.exists():
+            console.print("[red]TOTP not configured.[/red]")
+            raise typer.Exit(1)
+        
+        secret_b32 = secret_path.read_text().strip()
+        totp = TOTPGenerator.from_base32(
+            secret_b32,
+            digits=totp_config.get("digits", 6),
+            period=totp_config.get("period", 30),
+        )
+        
+        console.print(f"\n[bold]Access Request[/bold]")
+        console.print(f"  Service:   {service}")
+        console.print(f"  Operation: {operation}")
+        console.print(f"  Params:    {params}\n")
+        
+        code = typer.prompt("Enter TOTP code to approve")
+        
+        if not totp.verify(code):
+            console.print("[red]Invalid TOTP code. Access denied.[/red]")
+            raise typer.Exit(1)
+        
+        console.print("[green]Access granted.[/green]\n")
+    
+    # Execute operation
+    if service == "gmail":
+        from airlock.connectors.gmail import GmailConnector, GmailConfig
+        
+        cred = credentials["gmail"]
+        connector = GmailConnector(GmailConfig(
+            email=cred["email"],
+            app_password=cred["app_password"],
+        ))
+        
+        try:
+            result = asyncio.run(connector.execute(operation, op_params))
+            
+            # Pretty print result
+            if isinstance(result, list):
+                console.print(f"[bold]Results ({len(result)} items):[/bold]\n")
+                for item in result:
+                    if isinstance(item, dict):
+                        if "subject" in item:
+                            # Email message
+                            date = item.get("date", "")[:10] if item.get("date") else ""
+                            from_info = item.get("from", {})
+                            from_str = from_info.get("name") or from_info.get("email", "")
+                            console.print(f"  [{date}] {from_str[:20]:<20} {item.get('subject', '')[:50]}")
+                        else:
+                            console.print(f"  {item}")
+                    else:
+                        console.print(f"  {item}")
+            elif isinstance(result, dict):
+                console.print(json_lib.dumps(result, indent=2, default=str))
+            else:
+                console.print(result)
+        
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+            raise typer.Exit(1)
+    else:
+        console.print(f"[red]Unknown service: {service}[/red]")
         raise typer.Exit(1)
 
 

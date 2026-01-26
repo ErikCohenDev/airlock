@@ -15,6 +15,7 @@ Does NOT support (by design):
 
 import email
 import email.header
+import email.message
 import email.utils
 import imaplib
 import logging
