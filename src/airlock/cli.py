@@ -116,17 +116,11 @@ def totp_cmd(
         secret = TOTPGenerator.generate_secret()
         totp = TOTPGenerator(secret, digits=digits, period=period)
         
-        # Save secret
-        secret_path.parent.mkdir(parents=True, exist_ok=True)
-        secret_path.write_text(totp.get_secret_base32())
-        os.chmod(secret_path, 0o600)
-        
         # Generate URI and QR code
         uri = totp.get_uri(issuer, account)
         
-        console.print("\n[bold]TOTP Setup Complete[/bold]\n")
-        console.print(f"Secret saved to: {secret_path}")
-        console.print(f"\nSetup URI:\n[dim]{uri}[/dim]\n")
+        console.print("\n[bold]TOTP Setup[/bold]\n")
+        console.print("Scan this QR code with your authenticator app:\n")
         
         # Try to show QR code
         try:
@@ -134,17 +128,46 @@ def totp_cmd(
             qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_L)
             qr.add_data(uri)
             qr.make(fit=True)
-            
-            console.print("Scan this QR code with your authenticator app:\n")
             qr.print_ascii(invert=True)
         except ImportError:
             console.print("[yellow]Install qrcode for QR display: pip install qrcode[/yellow]")
             console.print(f"\nManually enter this secret in your authenticator:")
-            console.print(f"[bold]{totp.get_secret_base32()}[/bold]")
+            console.print(f"[bold]{totp.get_secret_base32()}[/bold]\n")
         
-        # Show current code for verification
-        console.print(f"\nCurrent code: [bold]{totp.generate()}[/bold]")
-        console.print("(Verify this matches your authenticator app)")
+        # Verify pairing before saving
+        console.print("\nEnter the 6-digit code from your authenticator to confirm pairing:\n")
+        
+        max_attempts = 3
+        paired = False
+        
+        for attempt in range(max_attempts):
+            code = typer.prompt("Code")
+            
+            if totp.verify(code):
+                paired = True
+                break
+            else:
+                remaining = max_attempts - attempt - 1
+                if remaining > 0:
+                    console.print(f"[red]Invalid code. {remaining} attempts remaining.[/red]")
+                else:
+                    console.print("[red]Too many failed attempts.[/red]")
+        
+        if not paired:
+            console.print("\n[red]Pairing failed. Secret was not saved.[/red]")
+            raise typer.Exit(1)
+        
+        # Save secret only after successful verification
+        secret_path.parent.mkdir(parents=True, exist_ok=True)
+        secret_path.write_text(totp.get_secret_base32())
+        os.chmod(secret_path, 0o600)
+        
+        # Clear screen to remove QR code from terminal
+        os.system('clear' if os.name != 'nt' else 'cls')
+        
+        console.print("[green]TOTP pairing successful![/green]")
+        console.print(f"Secret saved to: {secret_path}")
+        console.print("\nYour authenticator is now linked to Airlock.")
     
     elif action == "show":
         if not secret_path.exists():
