@@ -537,12 +537,54 @@ def test():
         raise typer.Exit(1)
 
 
+TOKEN_CACHE_PATH = DEFAULT_DATA_DIR / "token_cache.json"
+
+
+def get_cached_token() -> dict | None:
+    """Get cached token if still valid."""
+    import json as json_lib
+    from datetime import datetime, timezone
+    
+    if not TOKEN_CACHE_PATH.exists():
+        return None
+    
+    try:
+        cache = json_lib.loads(TOKEN_CACHE_PATH.read_text())
+        expires_at = datetime.fromisoformat(cache["expires_at"].replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) < expires_at:
+            return cache
+    except Exception:
+        pass
+    
+    return None
+
+
+def save_token_cache(ttl_minutes: int = 60) -> None:
+    """Save token approval to cache."""
+    import json as json_lib
+    from datetime import datetime, timezone, timedelta
+    
+    TOKEN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    cache = {
+        "approved_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)).isoformat(),
+    }
+    TOKEN_CACHE_PATH.write_text(json_lib.dumps(cache))
+
+
+def clear_token_cache() -> None:
+    """Clear the token cache."""
+    if TOKEN_CACHE_PATH.exists():
+        TOKEN_CACHE_PATH.unlink()
+
+
 @app.command("run")
 def run_cmd(
     service: str = typer.Argument(..., help="Service (gmail)"),
     operation: str = typer.Argument(..., help="Operation (list_messages, get_message, search, count_unread)"),
     params: str = typer.Option("{}", "--params", "-p", help="JSON params"),
     skip_totp: bool = typer.Option(False, "--skip-totp", help="Skip TOTP (for testing only)"),
+    ttl: int = typer.Option(60, "--ttl", "-t", help="Token TTL in minutes after approval"),
 ):
     """Run a one-shot operation with TOTP approval."""
     import asyncio
@@ -562,34 +604,46 @@ def run_cmd(
         console.print("[red]Invalid JSON params[/red]")
         raise typer.Exit(1)
     
-    # TOTP verification
+    # TOTP verification (check cache first)
     if not skip_totp:
-        totp_config = config.get("totp", {})
-        secret_path = Path(totp_config.get("secret_path", DEFAULT_DATA_DIR / "totp_secret"))
+        cached = get_cached_token()
         
-        if not secret_path.exists():
-            console.print("[red]TOTP not configured.[/red]")
-            raise typer.Exit(1)
-        
-        secret_b32 = secret_path.read_text().strip()
-        totp = TOTPGenerator.from_base32(
-            secret_b32,
-            digits=totp_config.get("digits", 6),
-            period=totp_config.get("period", 30),
-        )
-        
-        console.print(f"\n[bold]Access Request[/bold]")
-        console.print(f"  Service:   {service}")
-        console.print(f"  Operation: {operation}")
-        console.print(f"  Params:    {params}\n")
-        
-        code = typer.prompt("Enter TOTP code to approve")
-        
-        if not totp.verify(code):
-            console.print("[red]Invalid TOTP code. Access denied.[/red]")
-            raise typer.Exit(1)
-        
-        console.print("[green]Access granted.[/green]\n")
+        if cached:
+            # Token still valid, skip TOTP
+            from datetime import datetime, timezone
+            expires = datetime.fromisoformat(cached["expires_at"].replace("Z", "+00:00"))
+            remaining = int((expires - datetime.now(timezone.utc)).total_seconds() / 60)
+            console.print(f"[dim]Using cached approval ({remaining}m remaining)[/dim]\n")
+        else:
+            # Need fresh TOTP
+            totp_config = config.get("totp", {})
+            secret_path = Path(totp_config.get("secret_path", DEFAULT_DATA_DIR / "totp_secret"))
+            
+            if not secret_path.exists():
+                console.print("[red]TOTP not configured.[/red]")
+                raise typer.Exit(1)
+            
+            secret_b32 = secret_path.read_text().strip()
+            totp = TOTPGenerator.from_base32(
+                secret_b32,
+                digits=totp_config.get("digits", 6),
+                period=totp_config.get("period", 30),
+            )
+            
+            console.print(f"\n[bold]Access Request[/bold]")
+            console.print(f"  Service:   {service}")
+            console.print(f"  Operation: {operation}")
+            console.print(f"  Params:    {params}\n")
+            
+            code = typer.prompt("Enter TOTP code to approve")
+            
+            if not totp.verify(code):
+                console.print("[red]Invalid TOTP code. Access denied.[/red]")
+                raise typer.Exit(1)
+            
+            # Cache the approval
+            save_token_cache(ttl)
+            console.print(f"[green]Access granted ({ttl}m session).[/green]\n")
     
     # Execute operation
     if service == "gmail":
@@ -630,6 +684,16 @@ def run_cmd(
     else:
         console.print(f"[red]Unknown service: {service}[/red]")
         raise typer.Exit(1)
+
+
+@app.command()
+def revoke():
+    """Revoke cached access token."""
+    if TOKEN_CACHE_PATH.exists():
+        clear_token_cache()
+        console.print("[yellow]Access token revoked.[/yellow]")
+    else:
+        console.print("[dim]No active token to revoke.[/dim]")
 
 
 @app.command()
