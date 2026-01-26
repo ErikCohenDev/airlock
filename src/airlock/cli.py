@@ -1,4 +1,4 @@
-"""SAG CLI — Command-line interface for setup and management."""
+"""Airlock CLI — Command-line interface for setup and management."""
 
 import typer
 from rich.console import Console
@@ -14,9 +14,9 @@ console = Console()
 @app.command()
 def setup():
     """Initial setup wizard."""
-    console.print("[bold]SAG Setup[/bold]\n")
+    console.print("[bold]Airlock Setup[/bold]\n")
     console.print("This will:")
-    console.print("  1. Create system users (sag-totp, sag-gateway)")
+    console.print("  1. Create system users (airlock-totp, airlock-gateway)")
     console.print("  2. Generate TOTP secret and show QR code")
     console.print("  3. Set up directory structure")
     console.print("  4. Install systemd services")
@@ -98,20 +98,20 @@ def tokens(action: str = typer.Argument("list", help="list, revoke")):
 
 @app.command()
 def status():
-    """Show SAG service status."""
-    console.print("[bold]SAG Status[/bold]\n")
+    """Show Airlock service status."""
+    console.print("[bold]Airlock Status[/bold]\n")
     
     # TODO: Check actual service status
     services = [
-        ("sag-totp", "unknown"),
-        ("sag-gateway", "unknown"),
+        ("airlock-totp", "unknown"),
+        ("airlock-gateway", "unknown"),
     ]
     
-    for name, status in services:
-        if status == "running":
-            console.print(f"  ✅ {name}: [green]{status}[/green]")
+    for name, svc_status in services:
+        if svc_status == "running":
+            console.print(f"  {name}: [green]{svc_status}[/green]")
         else:
-            console.print(f"  ❌ {name}: [red]{status}[/red]")
+            console.print(f"  {name}: [red]{svc_status}[/red]")
 
 
 if __name__ == "__main__":

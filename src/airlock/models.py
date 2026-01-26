@@ -1,4 +1,4 @@
-"""Core data models for SAG."""
+"""Core data models for Airlock."""
 
 from datetime import datetime
 from enum import Enum
@@ -78,8 +78,8 @@ class ServiceCredentials(BaseModel):
 
 
 class GatewayConfig(BaseModel):
-    """Configuration for SAG gateway."""
-    totp_issuer: str = "SAG"
+    """Configuration for Airlock gateway."""
+    totp_issuer: str = "Airlock"
     totp_digits: int = 6
     totp_period: int = 30
     default_token_ttl_minutes: int = 60

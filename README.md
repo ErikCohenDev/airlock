@@ -1,6 +1,6 @@
-# 🚀 Airlock — Secure Access Gateway for AI Agents
+# Airlock — Secure Access Gateway for AI Agents
 
-> Human-in-the-loop access control for AI agents. Your assistant asks, you approve with TOTP, access auto-expires.
+Human-in-the-loop access control for AI agents. Your assistant asks, you approve with TOTP, access auto-expires.
 
 ## The Problem
 
@@ -12,7 +12,7 @@ AI agents need access to your personal services — email, calendar, APIs. Curre
 | OAuth tokens | Still full access once granted, no per-request approval |
 | API keys in env | Same as above |
 
-**What's missing:** A way to grant *temporary, read-only, audited* access that requires *your explicit approval* for each session.
+What's missing: A way to grant *temporary, read-only, audited* access that requires *your explicit approval* for each session.
 
 ## The Solution
 
@@ -20,9 +20,9 @@ Airlock sits between your AI agent and your personal services:
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  AI Agent   │────►│     Airlock     │────►│   Gmail     │     │    You      │
-│  (Claude,   │     │  Gateway    │     │  Calendar   │     │  (Telegram) │
-│   etc.)     │     │             │◄────│   etc.      │     │             │
+│  AI Agent   │────>│   Airlock   │────>│   Gmail     │     │    You      │
+│  (Claude,   │     │   Gateway   │     │  Calendar   │     │  (Telegram) │
+│   etc.)     │     │             │<────│   etc.      │     │             │
 └─────────────┘     └──────┬──────┘     └─────────────┘     └──────┬──────┘
                            │                                       │
                            │  "Bobby wants to check your email"    │
@@ -41,13 +41,13 @@ Airlock sits between your AI agent and your personal services:
 
 ## Features
 
-- **🔐 TOTP Approval** — 6-digit code from your authenticator app required for each access session
-- **⏱️ Auto-Expire** — Tokens expire after configurable time (default: 60 minutes)
-- **📖 Read-Only by Default** — Agents can read but not send, delete, or modify
-- **📋 Full Audit Trail** — Every access logged with timestamp, operation, and result
-- **🔒 Credential Isolation** — Secrets stored in isolated system user, inaccessible to agent
-- **📱 Mobile Approval** — Approve via Telegram, Signal, or any mesairlocking platform
-- **🏠 Self-Hosted** — Your data stays on your machine
+- **TOTP Approval** — 6-digit code from your authenticator app required for each access session
+- **Auto-Expire** — Tokens expire after configurable time (default: 60 minutes)
+- **Read-Only by Default** — Agents can read but not send, delete, or modify
+- **Full Audit Trail** — Every access logged with timestamp, operation, and result
+- **Credential Isolation** — Secrets stored in isolated system user, inaccessible to agent
+- **Mobile Approval** — Approve via Telegram, Signal, or any messaging platform
+- **Self-Hosted** — Your data stays on your machine
 
 ## Security Model
 
@@ -56,15 +56,15 @@ Airlock sits between your AI agent and your personal services:
 │                        Your Machine                            │
 │                                                                │
 │  ┌──────────────────┐    ┌──────────────────────────────────┐ │
-│  │ AI Agent         │    │ airlock-gateway (isolated user)      │ │
+│  │ AI Agent         │    │ airlock-gateway (isolated user)  │ │
 │  │ (runs as you)    │    │ - Owns credentials               │ │
 │  │                  │    │ - Validates tokens               │ │
-│  │ ❌ Cannot read:  │    │ - Enforces read-only             │ │
+│  │ Cannot read:     │    │ - Enforces read-only             │ │
 │  │   - TOTP secret  │    │ - Logs everything                │ │
 │  │   - Credentials  │    └──────────────────────────────────┘ │
 │  └──────────────────┘                                          │
 │                          ┌──────────────────────────────────┐  │
-│                          │ airlock-totp (isolated user)         │  │
+│                          │ airlock-totp (isolated user)     │  │
 │                          │ - Owns TOTP secret               │  │
 │                          │ - Issues tokens                  │  │
 │                          │ - Cannot access credentials      │  │
@@ -72,14 +72,13 @@ Airlock sits between your AI agent and your personal services:
 └────────────────────────────────────────────────────────────────┘
 ```
 
-Linux user isolation means the agent **literally cannot** read secrets — it's not policy, it's permissions.
+Linux user isolation means the agent cannot read secrets — it's not policy, it's permissions.
 
 ## Quick Start
 
 ### 1. Install
 
 ```bash
-# Clone and build
 git clone https://github.com/ErikCohenDev/airlock.git
 cd airlock
 ./install.sh
@@ -95,7 +94,6 @@ airlock setup totp
 ### 3. Add Credentials
 
 ```bash
-# Add Gmail (app password)
 airlock credentials add gmail
 ```
 
@@ -105,14 +103,14 @@ airlock credentials add gmail
 from airlock import AirlockClient
 
 async with AirlockClient() as airlock:
-    # This sends you a Telegram mesairlocke asking for TOTP
+    # This sends you a Telegram message asking for TOTP
     token = await airlock.request_access(
         services=["gmail"],
         reason="Check for urgent emails"
     )
     
     # After you reply with TOTP code...
-    mesairlockes = await airlock.gmail.list_mesairlockes(limit=10)
+    messages = await airlock.gmail.list_messages(limit=10)
     
 # Token auto-revoked when done
 ```
@@ -121,9 +119,9 @@ async with AirlockClient() as airlock:
 
 | Service | Read | Write |
 |---------|------|-------|
-| Gmail (IMAP) | ✅ List, search, read | ❌ Send, delete |
-| Google Calendar | ✅ List events | ❌ Create, modify |
-| iCloud Mail | ✅ List, read | ❌ Send, delete |
+| Gmail (IMAP) | Yes | No |
+| Google Calendar | Yes | No |
+| iCloud Mail | Yes | No |
 
 More coming: GitHub, Slack, Notion, etc.
 
@@ -146,7 +144,6 @@ notifications:
 
 permissions:
   default: read
-  # Future: per-service overrides
 ```
 
 ## Audit Log
@@ -156,7 +153,7 @@ Every access is logged:
 ```jsonl
 {"ts":"2026-01-26T15:30:00Z","event":"access_requested","services":["gmail"],"reason":"Check urgent emails"}
 {"ts":"2026-01-26T15:30:15Z","event":"totp_verified","token_id":"tok_abc123"}
-{"ts":"2026-01-26T15:30:20Z","event":"operation","service":"gmail","op":"list_mesairlockes","count":10}
+{"ts":"2026-01-26T15:30:20Z","event":"operation","service":"gmail","op":"list_messages","count":10}
 {"ts":"2026-01-26T16:30:00Z","event":"token_expired","token_id":"tok_abc123"}
 ```
 
@@ -178,27 +175,25 @@ airlock audit --service gmail --last 7d
 - [ ] Calendar connector
 - [ ] Write permissions (with extra confirmation)
 - [ ] Web dashboard for audit
-- [ ] Gap/DeepSecure integration
 
 ## How It Compares
 
-| Feature | Airlock | Gap | DeepSecure | Raw OAuth |
-|---------|-----|-----|------------|-----------|
-| Human approval per session | ✅ TOTP | ❌ | ❌ | ❌ |
-| Credential isolation | ✅ | ✅ | ✅ | ❌ |
-| Read-only enforcement | ✅ | ❌ | ⚠️ | ❌ |
-| Auto-expire tokens | ✅ | ⚠️ | ✅ | ❌ |
-| Mobile approval flow | ✅ | ❌ | ❌ | ❌ |
-| Self-hosted | ✅ | ✅ | ✅ | N/A |
-| Complexity | Low | Low | High | N/A |
+| Feature | Airlock | Gapless | DeepSecure | Raw OAuth |
+|---------|---------|---------|------------|-----------|
+| Human approval per session | Yes | No | No | No |
+| Credential isolation | Yes | Yes | Yes | No |
+| Read-only enforcement | Yes | No | Partial | No |
+| Auto-expire tokens | Yes | Partial | Yes | No |
+| Mobile approval flow | Yes | No | No | No |
+| Self-hosted | Yes | Yes | Yes | N/A |
 
-## Philosophy
+## Design Principles
 
 1. **Defense in depth** — Multiple layers, not one big wall
 2. **Least privilege** — Read-only default, explicit upgrades
 3. **Human in the loop** — You approve, not the agent
 4. **Audit everything** — Full visibility into what happened
-5. **Simple > Complex** — One machine, no cloud, no Kubernetes
+5. **Simple over complex** — One machine, no cloud, no Kubernetes
 
 ## Contributing
 
@@ -210,4 +205,4 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-Built by [Erik Cohen](https://erikcohen.dev) — because I needed it for my own AI assistant.
+Built by [Erik Cohen](https://erikcohen.dev)

@@ -1,4 +1,4 @@
-"""SAG Client — Interface for AI agents to request access."""
+"""Airlock Client — Interface for AI agents to request access."""
 
 import asyncio
 import json
@@ -10,31 +10,31 @@ from typing import Any
 from airlock.models import Token, AccessRequest
 
 
-class SAGClient:
+class AirlockClient:
     """Client for AI agents to request and use access tokens.
     
     Usage:
-        async with SAGClient() as sag:
-            token = await sag.request_access(
+        async with AirlockClient() as airlock:
+            token = await airlock.request_access(
                 services=["gmail"],
                 reason="Check for urgent emails"
             )
-            messages = await sag.execute(
+            messages = await airlock.execute(
                 service="gmail",
                 operation="list_messages",
                 params={"limit": 10}
             )
     """
     
-    GATEWAY_SOCKET = "/run/sag/gateway.sock"
-    TOTP_SOCKET = "/run/sag/totp.sock"
+    GATEWAY_SOCKET = "/run/airlock/gateway.sock"
+    TOTP_SOCKET = "/run/airlock/totp.sock"
     
     def __init__(self, socket_path: str | None = None):
         self.socket_path = socket_path or self.GATEWAY_SOCKET
         self._token: Token | None = None
         self._connected = False
     
-    async def __aenter__(self) -> "SAGClient":
+    async def __aenter__(self) -> "AirlockClient":
         await self.connect()
         return self
     
@@ -42,7 +42,7 @@ class SAGClient:
         await self.close()
     
     async def connect(self) -> None:
-        """Connect to the SAG gateway."""
+        """Connect to the Airlock gateway."""
         # TODO: Implement Unix socket connection
         self._connected = True
     
@@ -94,7 +94,7 @@ class SAGClient:
         # 3. Wait for TOTP code response
         # 4. Verify and issue token
         
-        raise NotImplementedError("SAG gateway not yet implemented")
+        raise NotImplementedError("Airlock gateway not yet implemented")
     
     async def execute(
         self,
@@ -123,7 +123,7 @@ class SAGClient:
             raise PermissionError(f"Token does not grant access to {service}")
         
         # TODO: Implement actual socket communication
-        raise NotImplementedError("SAG gateway not yet implemented")
+        raise NotImplementedError("Airlock gateway not yet implemented")
     
     async def revoke_token(self) -> None:
         """Explicitly revoke the current token."""
@@ -132,13 +132,13 @@ class SAGClient:
             self._token = None
 
 
-class SAGClientSync:
-    """Synchronous wrapper for SAGClient."""
+class AirlockClientSync:
+    """Synchronous wrapper for AirlockClient."""
     
     def __init__(self, socket_path: str | None = None):
-        self._async_client = SAGClient(socket_path)
+        self._async_client = AirlockClient(socket_path)
     
-    def __enter__(self) -> "SAGClientSync":
+    def __enter__(self) -> "AirlockClientSync":
         asyncio.get_event_loop().run_until_complete(self._async_client.connect())
         return self
     
