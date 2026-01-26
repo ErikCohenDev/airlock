@@ -49,8 +49,10 @@ secrets/
 *.age
 secrets.json
 
-# Local config
+# Local config (keep config.example.yaml, ignore actual configs)
 config.local.yaml
+config.yaml
+!config.example.yaml
 
 # Logs
 *.log

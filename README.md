@@ -81,20 +81,28 @@ Linux user isolation means the agent cannot read secrets — it's not policy, it
 ```bash
 git clone https://github.com/ErikCohenDev/airlock.git
 cd airlock
-./install.sh
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 ```
 
-### 2. Setup TOTP
+### 2. Initialize
 
 ```bash
-# Generates secret, shows QR code for your authenticator app
-airlock setup totp
+airlock init          # Creates ~/.config/airlock/config.yaml
+airlock totp setup    # Scan QR with authenticator, verify with code
+airlock credentials add gmail  # Add Gmail (needs App Password)
 ```
 
-### 3. Add Credentials
+### 3. Test It
 
 ```bash
-airlock credentials add gmail
+# Check status
+airlock status
+
+# Run a one-shot operation (prompts for TOTP)
+airlock run gmail count_unread
+airlock run gmail list_messages -p '{"limit": 10}'
 ```
 
 ### 4. Use with Your Agent
