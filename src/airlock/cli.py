@@ -368,12 +368,23 @@ def credentials_cmd(
             console.print("Example: airlock credentials get openrouter api_key")
             raise typer.Exit(1)
         
+        # Require TOTP verification before revealing secrets
+        from airlock.totp_verifier import TOTPGenerator
+        
+        totp_secret_b32 = totp_secret_path.read_text().strip()
+        totp = TOTPGenerator.from_base32(totp_secret_b32)
+        
+        code = typer.prompt("TOTP code to decrypt", hide_input=False)
+        if not totp.verify(code):
+            console.print("[red]Invalid TOTP code[/red]")
+            raise typer.Exit(1)
+        
         value = secrets.get(service, key)
         if value is None:
             console.print(f"[red]Not found: {service}.{key}[/red]")
             raise typer.Exit(1)
         
-        # Output raw value (for piping)
+        # Output raw value (for piping) — not logged, not in history
         print(value)
     
     elif action == "remove":
