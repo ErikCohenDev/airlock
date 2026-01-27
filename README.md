@@ -45,7 +45,7 @@ Airlock sits between your AI agent and your personal services:
 - **Auto-Expire** — Tokens expire after configurable time (default: 60 minutes)
 - **Read-Only by Default** — Agents can read but not send, delete, or modify
 - **Full Audit Trail** — Every access logged with timestamp, operation, and result
-- **Credential Isolation** — Secrets stored in isolated system user, inaccessible to agent
+- **Encrypted Secrets** — API keys and credentials encrypted at rest using TOTP-derived keys
 - **Mobile Approval** — Approve via Telegram, Signal, or any messaging platform
 - **Self-Hosted** — Your data stays on your machine
 
@@ -89,9 +89,10 @@ pip install -e ".[dev]"
 ### 2. Initialize
 
 ```bash
-airlock init          # Creates ~/.config/airlock/config.yaml
-airlock totp setup    # Scan QR with authenticator, verify with code
+airlock init               # Creates ~/.config/airlock/config.yaml
+airlock totp setup         # Scan QR with authenticator, verify with code
 airlock credentials add gmail  # Add Gmail (needs App Password)
+airlock secrets add openrouter api_key  # Add API keys (encrypted)
 ```
 
 ### 3. Test It
@@ -123,6 +124,70 @@ async with AirlockClient() as airlock:
 # Token auto-revoked when done
 ```
 
+### MCP Server (Claude Code, Clawdbot, etc.)
+
+Airlock exposes an MCP server for AI coding assistants:
+
+```bash
+# Test the MCP server
+airlock-mcp  # or: python -m airlock.mcp_server
+```
+
+Add to your Claude Code / Clawdbot MCP config:
+
+```json
+{
+  "mcpServers": {
+    "airlock": {
+      "command": "/path/to/airlock/.venv/bin/python",
+      "args": ["-m", "airlock.mcp_server"]
+    }
+  }
+}
+```
+
+**Available MCP Tools:**
+
+| Tool | Description |
+|------|-------------|
+| `airlock_status` | Check access status and available services |
+| `airlock_list_emails` | List recent emails from Gmail/iCloud |
+| `airlock_search_emails` | Search emails with query |
+| `airlock_get_email` | Get full email content by ID |
+| `airlock_count_unread` | Count unread emails |
+
+The agent will get an "access denied" response until you approve a session:
+
+```bash
+# Grant the agent access (prompts for TOTP)
+airlock run gmail list_messages  # or: airlock run icloud list_messages
+```
+
+After approval, the agent has read-only access for 60 minutes (configurable).
+
+## Secrets Management
+
+API keys and sensitive credentials are encrypted at rest using a key derived from your TOTP secret:
+
+```bash
+# Add a secret (secure prompt, not in shell history)
+airlock secrets add openrouter api_key
+Secret value: ████████████████
+Confirm secret value: ████████████████
+✓ Stored openrouter.api_key (encrypted)
+
+# List stored secrets
+airlock secrets list
+
+# Retrieve a secret (outputs to stdout for piping)
+airlock secrets get openrouter api_key
+
+# Remove a secret
+airlock secrets remove openrouter api_key
+```
+
+Secrets are stored in `~/.local/share/airlock/secrets.enc` (AES-256 encrypted).
+
 ## Supported Services (v1)
 
 | Service | Read | Write |
@@ -130,6 +195,7 @@ async with AirlockClient() as airlock:
 | Gmail (IMAP) | Yes | No |
 | Google Calendar | Yes | No |
 | iCloud Mail | Yes | No |
+| OpenRouter (LLM/Embeddings) | Yes | Yes |
 
 More coming: GitHub, Slack, Notion, etc.
 

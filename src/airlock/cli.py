@@ -193,7 +193,7 @@ def totp_cmd(
 @app.command("credentials")
 def credentials_cmd(
     action: str = typer.Argument(..., help="add, list, or remove"),
-    service: str = typer.Argument(None, help="Service name (gmail, calendar)"),
+    service: str = typer.Argument(None, help="Service name (gmail, icloud, calendar)"),
     email: str = typer.Option(None, "--email", "-e", help="Email address"),
     password: str = typer.Option(None, "--password", "-p", help="App password"),
 ):
@@ -248,12 +248,92 @@ def credentials_cmd(
             
             console.print(f"\n[green]Gmail credentials saved for {gmail_email}[/green]")
         
+        elif service == "icloud":
+            if not email or not password:
+                console.print("[bold]iCloud Mail Setup[/bold]\n")
+                console.print("You'll need an App-Specific Password from Apple.")
+                console.print("Go to: https://appleid.apple.com → Sign-In & Security → App-Specific Passwords\n")
+            
+            icloud_email = email or typer.prompt("iCloud email (@icloud.com, @me.com, or @mac.com)")
+            app_password = password or typer.prompt("App-specific password", hide_input=True)
+            
+            credentials["icloud"] = {
+                "type": "imap",
+                "email": icloud_email,
+                "app_password": app_password,
+                "imap_host": "imap.mail.me.com",
+                "imap_port": 993,
+            }
+            
+            config["credentials"] = credentials
+            save_config(config)
+            
+            console.print(f"\n[green]iCloud credentials saved for {icloud_email}[/green]")
+        
         elif service == "calendar":
-            console.print("[yellow]Google Calendar connector not yet implemented[/yellow]")
+            console.print("[bold]Google Calendar Setup[/bold]\n")
+            console.print("This requires OAuth credentials from Google Cloud Console.\n")
+            console.print("Steps:")
+            console.print("  1. Go to: https://console.cloud.google.com/apis/credentials")
+            console.print("  2. Create OAuth 2.0 Client ID (Desktop app)")
+            console.print("  3. Download the JSON file")
+            console.print("  4. Provide the path below\n")
+            
+            creds_file = typer.prompt(
+                "Path to OAuth credentials JSON",
+                default=str(DEFAULT_DATA_DIR / "calendar_credentials.json"),
+            )
+            creds_path = Path(creds_file).expanduser()
+            
+            if not creds_path.exists():
+                console.print(f"\n[red]File not found: {creds_path}[/red]")
+                console.print("Download the OAuth credentials JSON from Google Cloud Console first.")
+                raise typer.Exit(1)
+            
+            # Copy credentials to our data dir if not already there
+            target_path = DEFAULT_DATA_DIR / "calendar_credentials.json"
+            if creds_path != target_path:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                import shutil
+                shutil.copy(creds_path, target_path)
+                console.print(f"[dim]Copied credentials to {target_path}[/dim]")
+            
+            console.print("\n[bold]Starting OAuth flow...[/bold]")
+            console.print("A browser window will open. Sign in and authorize the app.\n")
+            
+            try:
+                from airlock.connectors.calendar import CalendarConnector, CalendarConfig
+                connector = CalendarConnector(CalendarConfig(
+                    credentials_path=target_path,
+                    token_path=DEFAULT_DATA_DIR / "calendar_token.json",
+                ))
+                
+                # This triggers the OAuth flow
+                import asyncio
+                calendars = asyncio.run(connector.execute("list_calendars", {}))
+                
+                credentials["calendar"] = {
+                    "type": "oauth",
+                    "credentials_path": str(target_path),
+                    "token_path": str(DEFAULT_DATA_DIR / "calendar_token.json"),
+                }
+                
+                config["credentials"] = credentials
+                save_config(config)
+                
+                console.print(f"\n[green]Google Calendar connected![/green]")
+                console.print(f"Found {len(calendars)} calendar(s):")
+                for cal in calendars[:5]:
+                    primary = " [primary]" if cal.get("primary") else ""
+                    console.print(f"  • {cal['name']}{primary}")
+                
+            except Exception as e:
+                console.print(f"\n[red]OAuth failed: {e}[/red]")
+                raise typer.Exit(1)
         
         else:
             console.print(f"[red]Unknown service: {service}[/red]")
-            console.print("Supported services: gmail, calendar")
+            console.print("Supported services: gmail, icloud, calendar")
             raise typer.Exit(1)
     
     elif action == "remove":
@@ -580,7 +660,7 @@ def clear_token_cache() -> None:
 
 @app.command("run")
 def run_cmd(
-    service: str = typer.Argument(..., help="Service (gmail)"),
+    service: str = typer.Argument(..., help="Service (gmail, icloud)"),
     operation: str = typer.Argument(..., help="Operation (list_messages, get_message, search, count_unread)"),
     params: str = typer.Option("{}", "--params", "-p", help="JSON params"),
     skip_totp: bool = typer.Option(False, "--skip-totp", help="Skip TOTP (for testing only)"),
@@ -654,35 +734,67 @@ def run_cmd(
             email=cred["email"],
             app_password=cred["app_password"],
         ))
+    elif service == "icloud":
+        from airlock.connectors.icloud import ICloudConnector, ICloudConfig
         
-        try:
-            result = asyncio.run(connector.execute(operation, op_params))
-            
-            # Pretty print result
-            if isinstance(result, list):
-                console.print(f"[bold]Results ({len(result)} items):[/bold]\n")
-                for item in result:
-                    if isinstance(item, dict):
-                        if "subject" in item:
-                            # Email message
-                            date = item.get("date", "")[:10] if item.get("date") else ""
-                            from_info = item.get("from", {})
-                            from_str = from_info.get("name") or from_info.get("email", "")
-                            console.print(f"  [{date}] {from_str[:20]:<20} {item.get('subject', '')[:50]}")
-                        else:
-                            console.print(f"  {item}")
-                    else:
-                        console.print(f"  {item}")
-            elif isinstance(result, dict):
-                console.print(json_lib.dumps(result, indent=2, default=str))
-            else:
-                console.print(result)
+        cred = credentials["icloud"]
+        connector = ICloudConnector(ICloudConfig(
+            email=cred["email"],
+            app_password=cred["app_password"],
+        ))
+    elif service == "calendar":
+        from airlock.connectors.calendar import CalendarConnector, CalendarConfig
         
-        except Exception as e:
-            console.print(f"[red]Error: {e}[/red]")
-            raise typer.Exit(1)
+        cred = credentials["calendar"]
+        connector = CalendarConnector(CalendarConfig(
+            credentials_path=Path(cred["credentials_path"]),
+            token_path=Path(cred["token_path"]),
+        ))
     else:
         console.print(f"[red]Unknown service: {service}[/red]")
+        console.print("Supported services: gmail, icloud, calendar")
+        raise typer.Exit(1)
+    
+    try:
+        result = asyncio.run(connector.execute(operation, op_params))
+        
+        # Pretty print result
+        if isinstance(result, list):
+            console.print(f"[bold]Results ({len(result)} items):[/bold]\n")
+            for item in result:
+                if isinstance(item, dict):
+                    if "subject" in item:
+                        # Email message
+                        date = item.get("date", "")[:10] if item.get("date") else ""
+                        from_info = item.get("from", {})
+                        from_str = from_info.get("name") or from_info.get("email", "")
+                        console.print(f"  [{date}] {from_str[:20]:<20} {item.get('subject', '')[:50]}")
+                    elif "summary" in item and "start" in item:
+                        # Calendar event
+                        start = item.get("start", "")
+                        if "T" in str(start):
+                            # Timed event - show time
+                            start_dt = start[:16].replace("T", " ")
+                        else:
+                            # All-day event
+                            start_dt = f"{start} (all day)"
+                        location = f" @ {item['location']}" if item.get("location") else ""
+                        console.print(f"  [{start_dt}] {item.get('summary', '(No title)')[:40]}{location}")
+                    elif "name" in item and "id" in item:
+                        # Calendar list item
+                        primary = " [primary]" if item.get("primary") else ""
+                        console.print(f"  • {item['name']}{primary}")
+                    else:
+                        console.print(f"  {item}")
+                else:
+                    console.print(f"  {item}")
+        elif isinstance(result, dict):
+            console.print(json_lib.dumps(result, indent=2, default=str))
+        else:
+            console.print(result)
+    
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
 
 
@@ -694,6 +806,113 @@ def revoke():
         console.print("[yellow]Access token revoked.[/yellow]")
     else:
         console.print("[dim]No active token to revoke.[/dim]")
+
+
+@app.command("secrets")
+def secrets_cmd(
+    action: str = typer.Argument(..., help="add, get, remove, or list"),
+    service: str = typer.Argument(None, help="Service name (e.g., openrouter)"),
+    key: str = typer.Argument(None, help="Secret key name (e.g., api_key)"),
+    from_stdin: bool = typer.Option(False, "--stdin", "-s", help="Read value from stdin (for piping)"),
+):
+    """Manage encrypted secrets.
+    
+    Secrets are encrypted using a key derived from your TOTP secret.
+    They can only be decrypted with access to the TOTP secret file.
+    
+    Examples:
+        airlock secrets add openrouter api_key        # Prompts securely
+        airlock secrets get openrouter api_key
+        airlock secrets list
+        airlock secrets remove openrouter api_key
+        
+        # From stdin (for scripts):
+        cat ~/key.txt | airlock secrets add openrouter api_key --stdin
+    """
+    from airlock.secrets import SecretsManager, SecretsConfig
+    
+    config = load_config()
+    totp_secret_path = Path(config.get("totp", {}).get(
+        "secret_path", 
+        str(DEFAULT_DATA_DIR / "totp_secret")
+    ))
+    
+    try:
+        secrets = SecretsManager(SecretsConfig(totp_secret_path=totp_secret_path))
+    except FileNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        console.print("Run [bold]airlock totp setup[/bold] first.")
+        raise typer.Exit(1)
+    
+    if action == "list":
+        services = secrets.list_services()
+        if not services:
+            console.print("[dim]No secrets stored.[/dim]")
+            return
+        
+        table = Table(title="Stored Secrets")
+        table.add_column("Service", style="cyan")
+        table.add_column("Keys", style="green")
+        
+        for svc in services:
+            keys = secrets.list_keys(svc)
+            table.add_row(svc, ", ".join(keys))
+        
+        console.print(table)
+    
+    elif action == "add":
+        if not service or not key:
+            console.print("[red]Error:[/red] service and key required for add")
+            raise typer.Exit(1)
+        
+        if from_stdin:
+            # Read from stdin (for piping)
+            import sys
+            value = sys.stdin.read().strip()
+            if not value:
+                console.print("[red]Error:[/red] No input received from stdin")
+                raise typer.Exit(1)
+        else:
+            # Secure prompt (hidden input, not in shell history)
+            value = typer.prompt("Secret value", hide_input=True)
+            # Confirm
+            value_confirm = typer.prompt("Confirm secret value", hide_input=True)
+            if value != value_confirm:
+                console.print("[red]Error:[/red] Values do not match")
+                raise typer.Exit(1)
+        
+        secrets.set(service, key, value)
+        console.print(f"[green]✓[/green] Stored {service}.{key} (encrypted)")
+    
+    elif action == "get":
+        if not service or not key:
+            console.print("[red]Error:[/red] service and key required for get")
+            raise typer.Exit(1)
+        
+        secret_value = secrets.get(service, key)
+        if secret_value is None:
+            console.print(f"[red]Not found:[/red] {service}.{key}")
+            raise typer.Exit(1)
+        
+        # Print to stdout (for piping) without formatting
+        print(secret_value)
+    
+    elif action == "remove":
+        if not service:
+            console.print("[red]Error:[/red] service required for remove")
+            raise typer.Exit(1)
+        
+        if secrets.delete(service, key):
+            target = f"{service}.{key}" if key else service
+            console.print(f"[green]✓[/green] Removed {target}")
+        else:
+            console.print(f"[red]Not found[/red]")
+            raise typer.Exit(1)
+    
+    else:
+        console.print(f"[red]Unknown action:[/red] {action}")
+        console.print("Available: add, get, remove, list")
+        raise typer.Exit(1)
 
 
 @app.command()

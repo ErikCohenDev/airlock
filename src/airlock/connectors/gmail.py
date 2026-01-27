@@ -275,18 +275,30 @@ class GmailConnector:
         return messages
     
     async def _get_message(self, uid: str, folder: str = "INBOX") -> dict[str, Any] | None:
-        """Get full message by UID."""
+        """Get full message by UID (or message sequence number)."""
         imap = self._connect()
         
         status, _ = imap.select(folder, readonly=True)
         if status != "OK":
             raise RuntimeError(f"Failed to select folder: {folder}")
         
-        status, data = imap.fetch(uid.encode() if isinstance(uid, str) else uid, "(RFC822)")
-        if status != "OK" or not data[0]:
-            return None
+        # Try BODY[] first (works better with some IMAP servers like iCloud)
+        uid_bytes = uid.encode() if isinstance(uid, str) else uid
+        status, data = imap.fetch(uid_bytes, "(BODY[])")
+        if status != "OK" or not data or not data[0]:
+            # Fallback to RFC822
+            status, data = imap.fetch(uid_bytes, "(RFC822)")
+            if status != "OK" or not data or not data[0]:
+                return None
         
-        raw = data[0][1] if isinstance(data[0], tuple) else data[0]
+        # Handle different response formats
+        raw = None
+        if isinstance(data[0], tuple) and len(data[0]) > 1:
+            raw = data[0][1]
+        elif isinstance(data[0], bytes):
+            # Some servers return just the content
+            raw = data[0]
+        
         if not raw:
             return None
         

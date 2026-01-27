@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "airlock": {
+      "command": "/home/bcohen/dev/airlock/.venv/bin/python",
+      "args": ["-m", "airlock.mcp_server"],
+      "env": {}
+    }
+  }
+}
