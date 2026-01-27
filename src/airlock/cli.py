@@ -202,8 +202,9 @@ def credentials_cmd(
     All credentials are stored encrypted using your TOTP secret.
     
     Examples:
-        airlock credentials add gmail          # Interactive setup
-        airlock credentials add openrouter api_key  # API key (prompts securely)
+        airlock credentials add gmail       # Interactive setup
+        airlock credentials add icloud      # Interactive setup  
+        airlock credentials add openrouter  # Interactive setup
         airlock credentials list
         airlock credentials get openrouter api_key
         airlock credentials remove gmail
@@ -324,12 +325,26 @@ def credentials_cmd(
             console.print(f"\n[green]✓ Calendar credentials saved (encrypted)[/green]")
             console.print("[dim]OAuth flow will run on first use.[/dim]")
         
-        # API key services (simple: just api_key)
-        else:
-            if not key:
-                console.print(f"[red]Key name required for {service}.[/red]")
-                console.print(f"\nExample: airlock credentials add {service} api_key")
+        elif service == "openrouter":
+            console.print("[bold]OpenRouter Setup[/bold]\n")
+            console.print("You'll need an API key from OpenRouter.")
+            console.print("Go to: https://openrouter.ai/keys\n")
+            
+            api_key = typer.prompt("API key", hide_input=True)
+            api_key_confirm = typer.prompt("Confirm API key", hide_input=True)
+            
+            if api_key != api_key_confirm:
+                console.print("[red]API keys do not match[/red]")
                 raise typer.Exit(1)
+            
+            secrets.set(service, "api_key", api_key)
+            console.print(f"\n[green]✓ OpenRouter credentials saved (encrypted)[/green]")
+        
+        # Generic API key services
+        else:
+            console.print(f"[bold]{service.title()} Setup[/bold]\n")
+            
+            key_name = key or "api_key"
             
             if from_stdin:
                 import sys
@@ -338,14 +353,14 @@ def credentials_cmd(
                     console.print("[red]No input received from stdin[/red]")
                     raise typer.Exit(1)
             else:
-                value = typer.prompt(f"{service} {key}", hide_input=True)
-                value_confirm = typer.prompt(f"Confirm {key}", hide_input=True)
+                value = typer.prompt(f"{key_name}", hide_input=True)
+                value_confirm = typer.prompt(f"Confirm {key_name}", hide_input=True)
                 if value != value_confirm:
                     console.print("[red]Values do not match[/red]")
                     raise typer.Exit(1)
             
-            secrets.set(service, key, value)
-            console.print(f"[green]✓ Stored {service}.{key} (encrypted)[/green]")
+            secrets.set(service, key_name, value)
+            console.print(f"\n[green]✓ {service}.{key_name} saved (encrypted)[/green]")
     
     elif action == "get":
         if not service or not key:
