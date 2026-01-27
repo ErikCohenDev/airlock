@@ -192,83 +192,105 @@ def totp_cmd(
 
 @app.command("credentials")
 def credentials_cmd(
-    action: str = typer.Argument(..., help="add, list, or remove"),
-    service: str = typer.Argument(None, help="Service name (gmail, icloud, calendar)"),
-    email: str = typer.Option(None, "--email", "-e", help="Email address"),
-    password: str = typer.Option(None, "--password", "-p", help="App password"),
+    action: str = typer.Argument(..., help="add, get, list, or remove"),
+    service: str = typer.Argument(None, help="Service name (gmail, icloud, calendar, openrouter)"),
+    key: str = typer.Argument(None, help="Key name for API services (e.g., api_key)"),
+    from_stdin: bool = typer.Option(False, "--stdin", "-s", help="Read value from stdin"),
 ):
-    """Manage service credentials."""
+    """Manage service credentials (encrypted).
+    
+    All credentials are stored encrypted using your TOTP secret.
+    
+    Examples:
+        airlock credentials add gmail          # Interactive setup
+        airlock credentials add openrouter api_key  # API key (prompts securely)
+        airlock credentials list
+        airlock credentials get openrouter api_key
+        airlock credentials remove gmail
+    """
+    from airlock.secrets import SecretsManager, SecretsConfig
+    
     config = load_config()
-    credentials = config.get("credentials", {})
+    totp_secret_path = Path(config.get("totp", {}).get(
+        "secret_path", 
+        str(DEFAULT_DATA_DIR / "totp_secret")
+    ))
+    
+    try:
+        secrets = SecretsManager(SecretsConfig(totp_secret_path=totp_secret_path))
+    except FileNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        console.print("Run [bold]airlock totp setup[/bold] first.")
+        raise typer.Exit(1)
     
     if action == "list":
-        table = Table(title="Configured Services")
-        table.add_column("Service")
-        table.add_column("Type")
-        table.add_column("Account")
-        table.add_column("Status")
+        services = secrets.list_services()
         
-        for svc, cred in credentials.items():
-            table.add_row(
-                svc,
-                cred.get("type", "unknown"),
-                cred.get("email", cred.get("account", "-")),
-                "[green]configured[/green]",
-            )
+        if not services:
+            console.print("[dim]No credentials stored.[/dim]")
+            console.print("\nAdd credentials with:")
+            console.print("  airlock credentials add gmail")
+            console.print("  airlock credentials add openrouter api_key")
+            return
         
-        if not credentials:
-            table.add_row("-", "-", "-", "[dim]no services configured[/dim]")
+        table = Table(title="Stored Credentials (encrypted)")
+        table.add_column("Service", style="cyan")
+        table.add_column("Keys", style="green")
+        
+        for svc in services:
+            keys = secrets.list_keys(svc)
+            table.add_row(svc, ", ".join(keys))
         
         console.print(table)
     
     elif action == "add":
         if not service:
-            console.print("[red]Service name required. Example: airlock credentials add gmail[/red]")
+            console.print("[red]Service name required.[/red]")
+            console.print("\nExamples:")
+            console.print("  airlock credentials add gmail")
+            console.print("  airlock credentials add openrouter api_key")
             raise typer.Exit(1)
         
+        # Email services (structured: email + app_password)
         if service == "gmail":
-            if not email or not password:
-                console.print("[bold]Gmail Setup[/bold]\n")
-                console.print("You'll need an App Password from Google.")
-                console.print("Go to: https://myaccount.google.com/apppasswords\n")
+            console.print("[bold]Gmail Setup[/bold]\n")
+            console.print("You'll need an App Password from Google.")
+            console.print("Go to: https://myaccount.google.com/apppasswords\n")
             
-            gmail_email = email or typer.prompt("Gmail address")
-            app_password = password or typer.prompt("App password", hide_input=True)
+            gmail_email = typer.prompt("Gmail address")
+            app_password = typer.prompt("App password", hide_input=True)
+            app_password_confirm = typer.prompt("Confirm app password", hide_input=True)
             
-            credentials["gmail"] = {
-                "type": "imap",
-                "email": gmail_email,
-                "app_password": app_password,
-                "imap_host": "imap.gmail.com",
-                "imap_port": 993,
-            }
+            if app_password != app_password_confirm:
+                console.print("[red]Passwords do not match[/red]")
+                raise typer.Exit(1)
             
-            config["credentials"] = credentials
-            save_config(config)
+            secrets.set(service, "email", gmail_email)
+            secrets.set(service, "app_password", app_password)
+            secrets.set(service, "imap_host", "imap.gmail.com")
+            secrets.set(service, "imap_port", "993")
             
-            console.print(f"\n[green]Gmail credentials saved for {gmail_email}[/green]")
+            console.print(f"\n[green]✓ Gmail credentials saved for {gmail_email} (encrypted)[/green]")
         
         elif service == "icloud":
-            if not email or not password:
-                console.print("[bold]iCloud Mail Setup[/bold]\n")
-                console.print("You'll need an App-Specific Password from Apple.")
-                console.print("Go to: https://appleid.apple.com → Sign-In & Security → App-Specific Passwords\n")
+            console.print("[bold]iCloud Mail Setup[/bold]\n")
+            console.print("You'll need an App-Specific Password from Apple.")
+            console.print("Go to: https://appleid.apple.com → Sign-In & Security → App-Specific Passwords\n")
             
-            icloud_email = email or typer.prompt("iCloud email (@icloud.com, @me.com, or @mac.com)")
-            app_password = password or typer.prompt("App-specific password", hide_input=True)
+            icloud_email = typer.prompt("iCloud email (@icloud.com, @me.com, or @mac.com)")
+            app_password = typer.prompt("App-specific password", hide_input=True)
+            app_password_confirm = typer.prompt("Confirm app password", hide_input=True)
             
-            credentials["icloud"] = {
-                "type": "imap",
-                "email": icloud_email,
-                "app_password": app_password,
-                "imap_host": "imap.mail.me.com",
-                "imap_port": 993,
-            }
+            if app_password != app_password_confirm:
+                console.print("[red]Passwords do not match[/red]")
+                raise typer.Exit(1)
             
-            config["credentials"] = credentials
-            save_config(config)
+            secrets.set(service, "email", icloud_email)
+            secrets.set(service, "app_password", app_password)
+            secrets.set(service, "imap_host", "imap.mail.me.com")
+            secrets.set(service, "imap_port", "993")
             
-            console.print(f"\n[green]iCloud credentials saved for {icloud_email}[/green]")
+            console.print(f"\n[green]✓ iCloud credentials saved for {icloud_email} (encrypted)[/green]")
         
         elif service == "calendar":
             console.print("[bold]Google Calendar Setup[/bold]\n")
@@ -287,71 +309,77 @@ def credentials_cmd(
             
             if not creds_path.exists():
                 console.print(f"\n[red]File not found: {creds_path}[/red]")
-                console.print("Download the OAuth credentials JSON from Google Cloud Console first.")
                 raise typer.Exit(1)
             
-            # Copy credentials to our data dir if not already there
+            # Copy to data dir
             target_path = DEFAULT_DATA_DIR / "calendar_credentials.json"
             if creds_path != target_path:
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 import shutil
                 shutil.copy(creds_path, target_path)
-                console.print(f"[dim]Copied credentials to {target_path}[/dim]")
             
-            console.print("\n[bold]Starting OAuth flow...[/bold]")
-            console.print("A browser window will open. Sign in and authorize the app.\n")
+            secrets.set(service, "credentials_path", str(target_path))
+            secrets.set(service, "token_path", str(DEFAULT_DATA_DIR / "calendar_token.json"))
             
-            try:
-                from airlock.connectors.calendar import CalendarConnector, CalendarConfig
-                connector = CalendarConnector(CalendarConfig(
-                    credentials_path=target_path,
-                    token_path=DEFAULT_DATA_DIR / "calendar_token.json",
-                ))
-                
-                # This triggers the OAuth flow
-                import asyncio
-                calendars = asyncio.run(connector.execute("list_calendars", {}))
-                
-                credentials["calendar"] = {
-                    "type": "oauth",
-                    "credentials_path": str(target_path),
-                    "token_path": str(DEFAULT_DATA_DIR / "calendar_token.json"),
-                }
-                
-                config["credentials"] = credentials
-                save_config(config)
-                
-                console.print(f"\n[green]Google Calendar connected![/green]")
-                console.print(f"Found {len(calendars)} calendar(s):")
-                for cal in calendars[:5]:
-                    primary = " [primary]" if cal.get("primary") else ""
-                    console.print(f"  • {cal['name']}{primary}")
-                
-            except Exception as e:
-                console.print(f"\n[red]OAuth failed: {e}[/red]")
-                raise typer.Exit(1)
+            console.print(f"\n[green]✓ Calendar credentials saved (encrypted)[/green]")
+            console.print("[dim]OAuth flow will run on first use.[/dim]")
         
+        # API key services (simple: just api_key)
         else:
-            console.print(f"[red]Unknown service: {service}[/red]")
-            console.print("Supported services: gmail, icloud, calendar")
+            if not key:
+                console.print(f"[red]Key name required for {service}.[/red]")
+                console.print(f"\nExample: airlock credentials add {service} api_key")
+                raise typer.Exit(1)
+            
+            if from_stdin:
+                import sys
+                value = sys.stdin.read().strip()
+                if not value:
+                    console.print("[red]No input received from stdin[/red]")
+                    raise typer.Exit(1)
+            else:
+                value = typer.prompt(f"{service} {key}", hide_input=True)
+                value_confirm = typer.prompt(f"Confirm {key}", hide_input=True)
+                if value != value_confirm:
+                    console.print("[red]Values do not match[/red]")
+                    raise typer.Exit(1)
+            
+            secrets.set(service, key, value)
+            console.print(f"[green]✓ Stored {service}.{key} (encrypted)[/green]")
+    
+    elif action == "get":
+        if not service or not key:
+            console.print("[red]Service and key required.[/red]")
+            console.print("Example: airlock credentials get openrouter api_key")
             raise typer.Exit(1)
+        
+        value = secrets.get(service, key)
+        if value is None:
+            console.print(f"[red]Not found: {service}.{key}[/red]")
+            raise typer.Exit(1)
+        
+        # Output raw value (for piping)
+        print(value)
     
     elif action == "remove":
         if not service:
             console.print("[red]Service name required[/red]")
             raise typer.Exit(1)
         
-        if service in credentials:
-            if typer.confirm(f"Remove credentials for {service}?"):
-                del credentials[service]
-                config["credentials"] = credentials
-                save_config(config)
-                console.print(f"[yellow]Removed {service} credentials[/yellow]")
-        else:
-            console.print(f"[red]No credentials found for {service}[/red]")
+        if not secrets.has(service, key):
+            target = f"{service}.{key}" if key else service
+            console.print(f"[red]Not found: {target}[/red]")
+            raise typer.Exit(1)
+        
+        target = f"{service}.{key}" if key else service
+        if typer.confirm(f"Remove {target}?"):
+            secrets.delete(service, key)
+            console.print(f"[green]✓ Removed {target}[/green]")
     
     else:
         console.print(f"[red]Unknown action: {action}[/red]")
+        console.print("Available: add, get, list, remove")
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -806,113 +834,6 @@ def revoke():
         console.print("[yellow]Access token revoked.[/yellow]")
     else:
         console.print("[dim]No active token to revoke.[/dim]")
-
-
-@app.command("secrets")
-def secrets_cmd(
-    action: str = typer.Argument(..., help="add, get, remove, or list"),
-    service: str = typer.Argument(None, help="Service name (e.g., openrouter)"),
-    key: str = typer.Argument(None, help="Secret key name (e.g., api_key)"),
-    from_stdin: bool = typer.Option(False, "--stdin", "-s", help="Read value from stdin (for piping)"),
-):
-    """Manage encrypted secrets.
-    
-    Secrets are encrypted using a key derived from your TOTP secret.
-    They can only be decrypted with access to the TOTP secret file.
-    
-    Examples:
-        airlock secrets add openrouter api_key        # Prompts securely
-        airlock secrets get openrouter api_key
-        airlock secrets list
-        airlock secrets remove openrouter api_key
-        
-        # From stdin (for scripts):
-        cat ~/key.txt | airlock secrets add openrouter api_key --stdin
-    """
-    from airlock.secrets import SecretsManager, SecretsConfig
-    
-    config = load_config()
-    totp_secret_path = Path(config.get("totp", {}).get(
-        "secret_path", 
-        str(DEFAULT_DATA_DIR / "totp_secret")
-    ))
-    
-    try:
-        secrets = SecretsManager(SecretsConfig(totp_secret_path=totp_secret_path))
-    except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        console.print("Run [bold]airlock totp setup[/bold] first.")
-        raise typer.Exit(1)
-    
-    if action == "list":
-        services = secrets.list_services()
-        if not services:
-            console.print("[dim]No secrets stored.[/dim]")
-            return
-        
-        table = Table(title="Stored Secrets")
-        table.add_column("Service", style="cyan")
-        table.add_column("Keys", style="green")
-        
-        for svc in services:
-            keys = secrets.list_keys(svc)
-            table.add_row(svc, ", ".join(keys))
-        
-        console.print(table)
-    
-    elif action == "add":
-        if not service or not key:
-            console.print("[red]Error:[/red] service and key required for add")
-            raise typer.Exit(1)
-        
-        if from_stdin:
-            # Read from stdin (for piping)
-            import sys
-            value = sys.stdin.read().strip()
-            if not value:
-                console.print("[red]Error:[/red] No input received from stdin")
-                raise typer.Exit(1)
-        else:
-            # Secure prompt (hidden input, not in shell history)
-            value = typer.prompt("Secret value", hide_input=True)
-            # Confirm
-            value_confirm = typer.prompt("Confirm secret value", hide_input=True)
-            if value != value_confirm:
-                console.print("[red]Error:[/red] Values do not match")
-                raise typer.Exit(1)
-        
-        secrets.set(service, key, value)
-        console.print(f"[green]✓[/green] Stored {service}.{key} (encrypted)")
-    
-    elif action == "get":
-        if not service or not key:
-            console.print("[red]Error:[/red] service and key required for get")
-            raise typer.Exit(1)
-        
-        secret_value = secrets.get(service, key)
-        if secret_value is None:
-            console.print(f"[red]Not found:[/red] {service}.{key}")
-            raise typer.Exit(1)
-        
-        # Print to stdout (for piping) without formatting
-        print(secret_value)
-    
-    elif action == "remove":
-        if not service:
-            console.print("[red]Error:[/red] service required for remove")
-            raise typer.Exit(1)
-        
-        if secrets.delete(service, key):
-            target = f"{service}.{key}" if key else service
-            console.print(f"[green]✓[/green] Removed {target}")
-        else:
-            console.print(f"[red]Not found[/red]")
-            raise typer.Exit(1)
-    
-    else:
-        console.print(f"[red]Unknown action:[/red] {action}")
-        console.print("Available: add, get, remove, list")
-        raise typer.Exit(1)
 
 
 @app.command()

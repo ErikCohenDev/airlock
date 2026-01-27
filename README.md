@@ -89,10 +89,10 @@ pip install -e ".[dev]"
 ### 2. Initialize
 
 ```bash
-airlock init               # Creates ~/.config/airlock/config.yaml
-airlock totp setup         # Scan QR with authenticator, verify with code
-airlock credentials add gmail  # Add Gmail (needs App Password)
-airlock secrets add openrouter api_key  # Add API keys (encrypted)
+airlock init                            # Creates ~/.config/airlock/config.yaml
+airlock totp setup                      # Scan QR with authenticator, verify with code
+airlock credentials add gmail           # Add Gmail (needs App Password)
+airlock credentials add openrouter api_key  # Add API keys (prompts securely)
 ```
 
 ### 3. Test It
@@ -165,28 +165,33 @@ airlock run gmail list_messages  # or: airlock run icloud list_messages
 
 After approval, the agent has read-only access for 60 minutes (configurable).
 
-## Secrets Management
+## Credentials Management
 
-API keys and sensitive credentials are encrypted at rest using a key derived from your TOTP secret:
+All credentials are encrypted at rest using a key derived from your TOTP secret:
 
 ```bash
-# Add a secret (secure prompt, not in shell history)
-airlock secrets add openrouter api_key
-Secret value: ████████████████
-Confirm secret value: ████████████████
+# Add email service (interactive setup)
+airlock credentials add gmail
+airlock credentials add icloud
+
+# Add API key (secure prompt, not in shell history)
+airlock credentials add openrouter api_key
+openrouter api_key: ████████████████
+Confirm api_key: ████████████████
 ✓ Stored openrouter.api_key (encrypted)
 
-# List stored secrets
-airlock secrets list
+# List stored credentials
+airlock credentials list
 
-# Retrieve a secret (outputs to stdout for piping)
-airlock secrets get openrouter api_key
+# Retrieve a credential (outputs to stdout for piping)
+airlock credentials get openrouter api_key
 
-# Remove a secret
-airlock secrets remove openrouter api_key
+# Remove credentials
+airlock credentials remove gmail
+airlock credentials remove openrouter api_key
 ```
 
-Secrets are stored in `~/.local/share/airlock/secrets.enc` (AES-256 encrypted).
+Credentials are stored in `~/.local/share/airlock/secrets.enc` (AES-256 encrypted).
 
 ## Supported Services (v1)
 
