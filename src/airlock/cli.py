@@ -192,40 +192,43 @@ def totp_cmd(
 
 @app.command("credentials")
 def credentials_cmd(
-    action: str = typer.Argument(..., help="add, get, list, or remove"),
+    action: str = typer.Argument(..., help="add, get, list, remove, or migrate"),
     service: str = typer.Argument(None, help="Service name (gmail, icloud, calendar, openrouter)"),
     key: str = typer.Argument(None, help="Key name for API services (e.g., api_key)"),
     from_stdin: bool = typer.Option(False, "--stdin", "-s", help="Read value from stdin"),
 ):
     """Manage service credentials (encrypted).
     
-    All credentials are stored encrypted using your TOTP secret.
+    All credentials are encrypted with a passphrase you provide.
+    The passphrase is NEVER stored — you must enter it when needed.
     
     Examples:
         airlock credentials add gmail       # Interactive setup
         airlock credentials add icloud      # Interactive setup  
         airlock credentials add openrouter  # Interactive setup
-        airlock credentials list
+        airlock credentials list            # Lists services (needs passphrase)
         airlock credentials get openrouter api_key
         airlock credentials remove gmail
+        airlock credentials migrate         # Migrate from old TOTP-based encryption
     """
     from airlock.secrets import SecretsManager, SecretsConfig
     
-    config = load_config()
-    totp_secret_path = Path(config.get("totp", {}).get(
-        "secret_path", 
-        str(DEFAULT_DATA_DIR / "totp_secret")
-    ))
+    secrets = SecretsManager()
     
-    try:
-        secrets = SecretsManager(SecretsConfig(totp_secret_path=totp_secret_path))
-    except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        console.print("Run [bold]airlock totp setup[/bold] first.")
-        raise typer.Exit(1)
+    # Check if this is a migration request
+    if action == "migrate":
+        _credentials_migrate()
+        return
+    
+    # Get passphrase for operations that need it
+    passphrase = typer.prompt("Passphrase", hide_input=True)
     
     if action == "list":
-        services = secrets.list_services()
+        try:
+            services = secrets.list_services(passphrase=passphrase)
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise typer.Exit(1)
         
         if not services:
             console.print("[dim]No credentials stored.[/dim]")
@@ -239,7 +242,7 @@ def credentials_cmd(
         table.add_column("Keys", style="green")
         
         for svc in services:
-            keys = secrets.list_keys(svc)
+            keys = secrets.list_keys(svc, passphrase=passphrase)
             table.add_row(svc, ", ".join(keys))
         
         console.print(table)
@@ -266,10 +269,10 @@ def credentials_cmd(
                 console.print("[red]Passwords do not match[/red]")
                 raise typer.Exit(1)
             
-            secrets.set(service, "email", gmail_email)
-            secrets.set(service, "app_password", app_password)
-            secrets.set(service, "imap_host", "imap.gmail.com")
-            secrets.set(service, "imap_port", "993")
+            secrets.set(service, "email", gmail_email, passphrase=passphrase)
+            secrets.set(service, "app_password", app_password, passphrase=passphrase)
+            secrets.set(service, "imap_host", "imap.gmail.com", passphrase=passphrase)
+            secrets.set(service, "imap_port", "993", passphrase=passphrase)
             
             console.print(f"\n[green]✓ Gmail credentials saved for {gmail_email} (encrypted)[/green]")
         
@@ -286,10 +289,10 @@ def credentials_cmd(
                 console.print("[red]Passwords do not match[/red]")
                 raise typer.Exit(1)
             
-            secrets.set(service, "email", icloud_email)
-            secrets.set(service, "app_password", app_password)
-            secrets.set(service, "imap_host", "imap.mail.me.com")
-            secrets.set(service, "imap_port", "993")
+            secrets.set(service, "email", icloud_email, passphrase=passphrase)
+            secrets.set(service, "app_password", app_password, passphrase=passphrase)
+            secrets.set(service, "imap_host", "imap.mail.me.com", passphrase=passphrase)
+            secrets.set(service, "imap_port", "993", passphrase=passphrase)
             
             console.print(f"\n[green]✓ iCloud credentials saved for {icloud_email} (encrypted)[/green]")
         
@@ -319,8 +322,8 @@ def credentials_cmd(
                 import shutil
                 shutil.copy(creds_path, target_path)
             
-            secrets.set(service, "credentials_path", str(target_path))
-            secrets.set(service, "token_path", str(DEFAULT_DATA_DIR / "calendar_token.json"))
+            secrets.set(service, "credentials_path", str(target_path), passphrase=passphrase)
+            secrets.set(service, "token_path", str(DEFAULT_DATA_DIR / "calendar_token.json"), passphrase=passphrase)
             
             console.print(f"\n[green]✓ Calendar credentials saved (encrypted)[/green]")
             console.print("[dim]OAuth flow will run on first use.[/dim]")
@@ -337,7 +340,7 @@ def credentials_cmd(
                 console.print("[red]API keys do not match[/red]")
                 raise typer.Exit(1)
             
-            secrets.set(service, "api_key", api_key)
+            secrets.set(service, "api_key", api_key, passphrase=passphrase)
             console.print(f"\n[green]✓ OpenRouter credentials saved (encrypted)[/green]")
         
         # Generic API key services
@@ -359,7 +362,7 @@ def credentials_cmd(
                     console.print("[red]Values do not match[/red]")
                     raise typer.Exit(1)
             
-            secrets.set(service, key_name, value)
+            secrets.set(service, key_name, value, passphrase=passphrase)
             console.print(f"\n[green]✓ {service}.{key_name} saved (encrypted)[/green]")
     
     elif action == "get":
@@ -368,18 +371,12 @@ def credentials_cmd(
             console.print("Example: airlock credentials get openrouter api_key")
             raise typer.Exit(1)
         
-        # Require TOTP verification before revealing secrets
-        from airlock.totp_verifier import TOTPGenerator
-        
-        totp_secret_b32 = totp_secret_path.read_text().strip()
-        totp = TOTPGenerator.from_base32(totp_secret_b32)
-        
-        code = typer.prompt("TOTP code to decrypt", hide_input=False)
-        if not totp.verify(code):
-            console.print("[red]Invalid TOTP code[/red]")
+        try:
+            value = secrets.get(service, key, passphrase=passphrase)
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(1)
         
-        value = secrets.get(service, key)
         if value is None:
             console.print(f"[red]Not found: {service}.{key}[/red]")
             raise typer.Exit(1)
@@ -392,19 +389,78 @@ def credentials_cmd(
             console.print("[red]Service name required[/red]")
             raise typer.Exit(1)
         
-        if not secrets.has(service, key):
-            target = f"{service}.{key}" if key else service
-            console.print(f"[red]Not found: {target}[/red]")
+        try:
+            if not secrets.has(service, key, passphrase=passphrase):
+                target = f"{service}.{key}" if key else service
+                console.print(f"[red]Not found: {target}[/red]")
+                raise typer.Exit(1)
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {e}")
             raise typer.Exit(1)
         
         target = f"{service}.{key}" if key else service
         if typer.confirm(f"Remove {target}?"):
-            secrets.delete(service, key)
+            secrets.delete(service, key, passphrase=passphrase)
             console.print(f"[green]✓ Removed {target}[/green]")
     
     else:
         console.print(f"[red]Unknown action: {action}[/red]")
-        console.print("Available: add, get, list, remove")
+        console.print("Available: add, get, list, remove, migrate")
+        raise typer.Exit(1)
+
+
+def _credentials_migrate():
+    """Migrate from legacy TOTP-based encryption to passphrase-based."""
+    from airlock.secrets import migrate_from_totp, DEFAULT_SECRETS_PATH, LEGACY_TOTP_SECRET_PATH
+    
+    console.print("[bold]Credentials Migration[/bold]\n")
+    console.print("This will migrate your secrets from the old TOTP-based encryption")
+    console.print("to the new passphrase-based encryption.\n")
+    
+    # Check if migration is needed
+    if not DEFAULT_SECRETS_PATH.exists():
+        console.print("[yellow]No existing secrets file found.[/yellow]")
+        console.print("Nothing to migrate. Use 'airlock credentials add' to add new credentials.")
+        return
+    
+    if not LEGACY_TOTP_SECRET_PATH.exists():
+        console.print("[yellow]No legacy TOTP secret file found.[/yellow]")
+        console.print("Your secrets may already be using the new format, or migration is not needed.")
+        return
+    
+    console.print("[yellow]⚠️  After migration, the old encryption will no longer work.[/yellow]")
+    console.print("Make sure you remember your new passphrase!\n")
+    
+    if not typer.confirm("Continue with migration?"):
+        raise typer.Abort()
+    
+    # Read TOTP secret for decryption
+    totp_secret = LEGACY_TOTP_SECRET_PATH.read_text().strip()
+    
+    # Get new passphrase
+    console.print("\nChoose a strong passphrase for your secrets.")
+    console.print("This passphrase is NEVER stored — you must remember it.\n")
+    
+    new_passphrase = typer.prompt("New passphrase", hide_input=True)
+    new_passphrase_confirm = typer.prompt("Confirm passphrase", hide_input=True)
+    
+    if new_passphrase != new_passphrase_confirm:
+        console.print("[red]Passphrases do not match[/red]")
+        raise typer.Exit(1)
+    
+    if len(new_passphrase) < 8:
+        console.print("[red]Passphrase too short (minimum 8 characters)[/red]")
+        raise typer.Exit(1)
+    
+    try:
+        migrate_from_totp(totp_secret, new_passphrase)
+        console.print("\n[green]✓ Migration successful![/green]")
+        console.print("\nYour secrets are now encrypted with your passphrase.")
+        console.print("The old secrets file has been backed up to secrets.enc.backup")
+        console.print("\n[bold]Important:[/bold] You will need to enter your passphrase")
+        console.print("every time you access credentials. This is by design for security.")
+    except ValueError as e:
+        console.print(f"\n[red]Migration failed:[/red] {e}")
         raise typer.Exit(1)
 
 
@@ -639,6 +695,107 @@ def stop():
         console.print("[green]Airlock stopped.[/green]")
     else:
         console.print("[dim]No daemons were running.[/dim]")
+
+
+@app.command()
+def unlock(
+    timeout: int = typer.Option(480, "--timeout", "-t", help="Key timeout in minutes (default 8 hours)"),
+):
+    """Unlock secrets vault with passphrase.
+    
+    Enter your passphrase to load the decryption key into daemon memory.
+    The key will be cleared after timeout or when you run 'airlock lock'.
+    
+    TOTP verification is still required for each secret access.
+    """
+    from airlock.secrets_daemon import SecretsClient, SecretsDaemon, DEFAULT_SOCKET_PATH
+    import subprocess
+    import time
+    
+    # Check if daemon is running
+    if not DEFAULT_SOCKET_PATH.exists():
+        console.print("[yellow]Secrets daemon not running. Starting...[/yellow]")
+        
+        # Fork a background process for the daemon
+        pid = os.fork()
+        if pid == 0:
+            # Child process - run daemon
+            os.setsid()  # New session
+            
+            # Fork again to fully detach
+            pid2 = os.fork()
+            if pid2 > 0:
+                os._exit(0)  # First child exits
+            
+            # Grandchild runs the daemon
+            daemon = SecretsDaemon(key_timeout_minutes=timeout)
+            try:
+                daemon.start()
+            except Exception:
+                pass
+            os._exit(0)
+        else:
+            # Parent process - wait for socket
+            os.waitpid(pid, 0)  # Wait for first child
+            
+            for _ in range(30):  # Wait up to 3 seconds
+                if DEFAULT_SOCKET_PATH.exists():
+                    break
+                time.sleep(0.1)
+            
+            if not DEFAULT_SOCKET_PATH.exists():
+                console.print("[red]Failed to start secrets daemon[/red]")
+                raise typer.Exit(1)
+            
+            console.print("[green]Secrets daemon started.[/green]")
+    
+    client = SecretsClient()
+    
+    # Check current status
+    status_result = client.status()
+    if "error" in status_result:
+        console.print(f"[red]Error connecting to daemon:[/red] {status_result['error']}")
+        raise typer.Exit(1)
+    
+    if status_result.get("unlocked"):
+        console.print("[green]Already unlocked.[/green]")
+        console.print("Run 'airlock lock' to clear the key.")
+        return
+    
+    # Get passphrase
+    console.print("[bold]Unlock Secrets Vault[/bold]\n")
+    console.print("Enter your passphrase (never stored, never transmitted over chat):\n")
+    
+    passphrase = typer.prompt("Passphrase", hide_input=True)
+    
+    result = client.unlock(passphrase)
+    
+    if result.get("success"):
+        console.print(f"\n[green]✓ Vault unlocked[/green]")
+        console.print(f"Key will be cleared after {timeout} minutes or on 'airlock lock'")
+        console.print("\nSecret access now requires TOTP code only.")
+    else:
+        console.print(f"\n[red]Unlock failed:[/red] {result.get('error', 'Unknown error')}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def lock():
+    """Lock secrets vault (clear decryption key from memory)."""
+    from airlock.secrets_daemon import SecretsClient, DEFAULT_SOCKET_PATH
+    
+    if not DEFAULT_SOCKET_PATH.exists():
+        console.print("[dim]Secrets daemon not running.[/dim]")
+        return
+    
+    client = SecretsClient()
+    result = client.lock()
+    
+    if result.get("success"):
+        console.print("[green]✓ Vault locked[/green]")
+        console.print("Decryption key cleared from memory.")
+    else:
+        console.print(f"[red]Error:[/red] {result.get('error', 'Unknown error')}")
 
 
 @app.command()

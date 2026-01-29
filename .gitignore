@@ -61,3 +61,14 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Airlock sensitive data (never commit)
+*.enc
+*.salt
+totp_secret
+calendar_token.json
+calendar_credentials.json
+token_cache.json
+
+# Local MCP config (contains machine-specific paths)
+mcp-config.json
